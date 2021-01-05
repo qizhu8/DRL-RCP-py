@@ -13,19 +13,19 @@ class DQNNet(nn.Module):
     def __init__(self, nStates, nActions):
         super(DQNNet, self).__init__()
         self.fc1 = nn.Linear(nStates, 50)
-        self.fc2 = nn.Linear(50, 100)
-        self.out = nn.Linear(100, nActions)
+        # self.fc2 = nn.Linear(50, 100)
+        self.out = nn.Linear(50, nActions)
 
         # initialize weights
         self.fc1.weight.data.normal_(0, 1)
-        self.fc2.weight.data.normal_(0, 1)
+        # self.fc2.weight.data.normal_(0, 1)
         self.out.weight.data.normal_(0, 1)
     
     def forward(self, state):
         # layer 1
         x = F.relu(self.fc1(state))
         # layer 2
-        x = F.relu(self.fc2(x))
+        # x = F.relu(self.fc2(x))
         # out
         return self.out(x)
 
@@ -71,18 +71,18 @@ class DQN(object):
         self.device = torch.device(deviceStr)
 
 
-    def chooseAction(self, state, randomOnly=False):
+    def chooseAction(self, state, evalOn=False):
         state = torch.unsqueeze(torch.FloatTensor(state), 0) # to vector
 
         # epsilon greedy
-        if randomOnly or np.random.uniform() > self.epsilon:
-            action = np.random.randint(0, self.nActions)
-        else:
+        if evalOn or np.random.uniform() < self.epsilon:
             actionRewards = self.evalNet.forward(state) # actionRewards if of shape 1 x nAction
     
             # action = torch.argmax(actionRewards, 1)
             action = torch.max(actionRewards, 1)[1] # the [1] pointed to argmax
             action = action.cpu().data.numpy()[0] # add [0] at last because we want int rather than [int]
+        else:
+            action = np.random.randint(0, self.nActions)
         return action
     
     def storeExperience(self, s, a, r, s_):
@@ -93,12 +93,13 @@ class DQN(object):
     
     def learn(self):
         # check whether to update tgtNet
-        if self.learningCounter > self.updateFrequencyCur:
+        # if self.learningCounter > self.updateFrequencyCur:
+        if self.learningCounter > self.updateFrequencyFinal:
             self.tgtNet.load_state_dict(self.evalNet.state_dict())
             self.learningCounter = 0
             # quick update initially, slow update later
-            self.updateFrequencyCur *= 1.1
-            self.updateFrequencyCur = min(self.updateFrequencyCur, self.updateFrequencyFinal)
+            # self.updateFrequencyCur *= 1.1
+            # self.updateFrequencyCur = min(self.updateFrequencyCur, self.updateFrequencyFinal)
         self.learningCounter += 1
 
         # randomly sample $batch experiences 

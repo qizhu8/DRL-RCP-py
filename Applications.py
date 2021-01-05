@@ -30,38 +30,41 @@ class SimpleServer(object):
         self.ACKMode = ACKMode
         self.ack = -1
 
+        # time
+        self.time = 0
+        
+
     def ticking(self, packetList):
         """server checks packets """
+        self.time += 1
+
         ACKPacketList = []
 
-
         if packetList:
-            if self.verbose:
-                print("Server {} acks pkts".format(self.serverId), end="")
             for packet in packetList:
-                flag, ACKPacket = self.ACK(packet)
-                if flag:
-                    ACKPacketList.append(ACKPacket)
-                    if self.verbose:
-                        print(" {}".format(ACKPacket.pid), end="")
-            if self.verbose:
-                print()
+                ACKPacketList += self.ACK(packet)
+
+        if self.verbose and ACKPacketList:
+            print("Server {} recv pkts".format(self.serverId), end="")
+            for packet in ACKPacketList:
+                print(" {}".format(packet.pid), end="")
+            print()
         return len(ACKPacketList) > 0,  ACKPacketList
 
     def ACK(self, packet):
         """ACK a packet"""
         if packet.duid != self.serverId:
             """wrong destination"""
-            return False, []
+            return []
 
         if self.ACKMode == "SACK":
-            return True, Packet(pid=packet.pid, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK)
+            return [Packet(pid=packet.pid, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK, txTime=packet.txTime)]
         if self.ACKMode == "LC":
             if packet.pid == self.ack+1:
                 self.ack = packet.pid
-            return True, Packet(pid=self.ack, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK)
+            return [Packet(pid=self.ack, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK, txTime=packet.txTime)]
         
-        return False, []
+        return []
 
 
 class SimpleClient(object):
@@ -156,7 +159,7 @@ class SimpleClient(object):
         self.pid = 0
     
     def setTimeout(self, timeout):
-        self.timeout = time
+        self.timeout = timeout
 
     def _transmitNewPacket(self):
 
@@ -174,6 +177,7 @@ class SimpleClient(object):
                             pid=self.pid, 
                             suid=self.clientId,
                             duid=self.serverId,
+                            txTime=self.time,
                             packetType=Packet.MSG))
                         if self.verbose:
                             print(" {}".format(self.pid), end="")
@@ -204,12 +208,14 @@ class SimpleClient(object):
                             pid=self.pid, 
                             suid=self.clientId,
                             duid=self.serverId,
+                            txTime=self.time,
                             packetType=Packet.MSG))
                     if self.verbose:
                         print(" {}".format(self.pid), end="")
                     
                     if self.ACKMode == "SACK":
-                        self.pktsNACKed_SACK[self.pid] = 0
+                        # [flyingTime, transmmsion attempt, txTime]
+                        self.pktsNACKed_SACK[self.pid] = [0, 1, self.time] 
                     self.pid += 1
                 if self.verbose:
                     print()
@@ -226,6 +232,7 @@ class SimpleClient(object):
     def _handleACK(self, ACKPacketList):
         
         def _handleACK_LC():
+            """LC mode cannot preserve the previous transmission time in current mode"""
             packetList = []
             lastACK_LC_old = self.lastACK_LC
             for packet in ACKPacketList:
@@ -261,13 +268,15 @@ class SimpleClient(object):
             # retransmit NACKed packets
             
             for pid in self.pktsNACKed_SACK:
-                self.pktsNACKed_SACK[pid] += 1
-                if self.pktsNACKed_SACK[pid] >= self.timeout:
-                    self.pktsNACKed_SACK[pid] = 0
+                self.pktsNACKed_SACK[pid][0] += 1
+                if self.pktsNACKed_SACK[pid][0] >= self.timeout:
+                    self.pktsNACKed_SACK[pid][0] = 0  # waiting timer clear
+                    self.pktsNACKed_SACK[pid][1] += 1 # transmission attempt +1
                     packetList.append(Packet(
                         pid=pid, 
                         suid=self.clientId,
                         duid=self.serverId,
+                        txTime=self.pktsNACKed_SACK[pid][2],
                         packetType=Packet.MSG))
                     
             return packetList

@@ -140,13 +140,15 @@ class SingleModeChannel(object):
     def ifKeepThePkt(self):
         return True if self.pktDropProb == 0 else random.uniform(0, 1) < self.pktDropProb
 
-    def __init__(self, processRate=1, mode=None, param=None, bufferSize=0, pktDropProb=0):
+    def __init__(self, processRate=1, mode=None, param=None, bufferSize=0, pktDropProb=0, verbose=False):
         self.mode = self.parseMode(mode)
         self.param = self.parseParam(self.mode, param)
         self.pktDropProb = pktDropProb
         
         self.bufferSize = self.parseQueueSize(bufferSize)
         self.processRate = self.parseProcessRate(processRate)
+
+        self.verbose = verbose
 
         # initialize buffer
         self._initBuffer()
@@ -168,13 +170,20 @@ class SingleModeChannel(object):
     channel operations
     """
     def putPackets(self, packetList):
+        pktsDropped_loss = 0
+        pktDrop_fullQueue = 0
         for packet in packetList:
             if self.ifKeepThePkt():
                 flag = self.channelBuffer.enqueue(packet)
                 if not flag:
-                    print("[-] d full")
+                    pktDrop_fullQueue += 1
             else:
-                print("[-] d loss")
+                pktsDropped_loss += 1
+        if self.verbose:
+            if pktsDropped_loss:
+                print("[-] Channel: {} loss".format(pktsDropped_loss))
+            if pktDrop_fullQueue:
+                print("[-] Channel: {} drop".format(pktDrop_fullQueue))
 
     def getPackets(self):
         packetList = []
