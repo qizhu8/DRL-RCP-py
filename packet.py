@@ -10,11 +10,12 @@ class Packet(object):
     MSG = 0
     ACK = 1
     
-    def __init__(self, pid=0, suid=0, duid=0, packetType=MSG):
+    def __init__(self, pid=0, suid=0, duid=0, txTime=0, packetType=MSG):
         self.pid = pid
         self.suid= suid
         self.duid= duid
         self.packetType = packetType
+        self.txTime=0
     
 
     def __str__(self):
