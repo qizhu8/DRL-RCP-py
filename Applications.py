@@ -1,4 +1,4 @@
-from packet import Packet
+from packet import Packet, PacketInfo
 import random
 
 class SimpleServer(object):
@@ -45,7 +45,7 @@ class SimpleServer(object):
                 ACKPacketList += self.ACK(packet)
 
         if self.verbose and ACKPacketList:
-            print("Server {} recv pkts".format(self.serverId), end="")
+            print("Server {} ACK pkts".format(self.serverId), end="")
             for packet in ACKPacketList:
                 print(" {}".format(packet.pid), end="")
             print()
@@ -178,12 +178,15 @@ class SimpleClient(object):
                             suid=self.clientId,
                             duid=self.serverId,
                             txTime=self.time,
+                            initTxTime=self.time,
                             packetType=Packet.MSG))
                         if self.verbose:
                             print(" {}".format(self.pid), end="")
                         
                         if self.ACKMode == "SACK":
-                            self.pktsNACKed_SACK[self.pid] = 0
+                            self.pktsNACKed_SACK[self.pid] = PacketInfo(
+                                pid=self.pid, suid=self.serverId, duid=self.clientId, txTime=self.time, initTxTime=self.time, txAttempts=1, rttHat=self.rttHat, pktLossHat=self.pktLossHat
+                            )
                         self.pid += 1
                     if self.verbose:
                         print()
@@ -215,7 +218,9 @@ class SimpleClient(object):
                     
                     if self.ACKMode == "SACK":
                         # [flyingTime, transmmsion attempt, txTime]
-                        self.pktsNACKed_SACK[self.pid] = [0, 1, self.time] 
+                        self.pktsNACKed_SACK[self.pid] = PacketInfo(
+                                pid=self.pid, suid=self.serverId, duid=self.clientId, txTime=self.time, initTxTime=self.time, txAttempts=1, rttHat=self.rttHat, pktLossHat=self.pktLossHat
+                            )
                     self.pid += 1
                 if self.verbose:
                     print()
@@ -268,15 +273,16 @@ class SimpleClient(object):
             # retransmit NACKed packets
             
             for pid in self.pktsNACKed_SACK:
-                self.pktsNACKed_SACK[pid][0] += 1
-                if self.pktsNACKed_SACK[pid][0] >= self.timeout:
-                    self.pktsNACKed_SACK[pid][0] = 0  # waiting timer clear
-                    self.pktsNACKed_SACK[pid][1] += 1 # transmission attempt +1
+                flyingTime = self.time - self.pktsNACKed_SACK[pid].txTime
+                if flyingTime >= self.timeout:
+                    self.pktsNACKed_SACK[pid].txTime = self.time  # waiting timer clear
+                    self.pktsNACKed_SACK[pid].txAttempts += 1 # transmission attempt +1
                     packetList.append(Packet(
                         pid=pid, 
                         suid=self.clientId,
                         duid=self.serverId,
-                        txTime=self.pktsNACKed_SACK[pid][2],
+                        txTime=self.time,
+                        initTxTime=self.pktsNACKed_SACK[pid].initTxTime,
                         packetType=Packet.MSG))
                     
             return packetList

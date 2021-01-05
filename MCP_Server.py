@@ -26,7 +26,12 @@ class MCP_Server(SimpleServer):
         self.pktInfo[packet.pid] = self.time - packet.initTxTime
         self.maxSeenPid = max(self.maxSeenPid, packet.pid)
 
-        return [Packet(pid=packet.pid, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK, txTime=packet.txTime, initTxTime=packet.initTxTime)]
+        packet.duid=packet.suid
+        packet.suid=self.serverId
+        packet.packetType=Packet.ACK
+        
+
+        return [packet]
         
     
 
@@ -50,4 +55,4 @@ class MCP_Server(SimpleServer):
         print("Server {} Performance:".format(self.serverId))
         print("%d pkts delivered" % deliveriedPkts)
         print("{} percent delivery rate".format(deliveryRate))
-        print("average delay %d" % avgDelay)
+        print("average delay {}".format(avgDelay))

@@ -12,9 +12,9 @@ class DQNNet(nn.Module):
     """Our decision making network"""
     def __init__(self, nStates, nActions):
         super(DQNNet, self).__init__()
-        self.fc1 = nn.Linear(nStates, 50)
+        self.fc1 = nn.Linear(nStates, 100)
         # self.fc2 = nn.Linear(50, 100)
-        self.out = nn.Linear(50, nActions)
+        self.out = nn.Linear(100, nActions)
 
         # initialize weights
         self.fc1.weight.data.normal_(0, 1)
@@ -93,6 +93,9 @@ class DQN(object):
     
     def learn(self):
         # check whether to update tgtNet
+        if self.memoryCounter <= 0:
+            return
+
         # if self.learningCounter > self.updateFrequencyCur:
         if self.learningCounter > self.updateFrequencyFinal:
             self.tgtNet.load_state_dict(self.evalNet.state_dict())

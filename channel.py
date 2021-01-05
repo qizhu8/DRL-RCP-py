@@ -138,7 +138,10 @@ class SingleModeChannel(object):
         return processRate
 
     def ifKeepThePkt(self):
-        return True if self.pktDropProb == 0 else random.uniform(0, 1) < self.pktDropProb
+        if random.uniform(0, 1) < self.pktDropProb:
+            return False
+        
+        return True 
 
     def __init__(self, processRate=1, mode=None, param=None, bufferSize=0, pktDropProb=0, verbose=False):
         self.mode = self.parseMode(mode)
