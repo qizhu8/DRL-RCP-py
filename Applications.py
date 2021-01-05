@@ -32,6 +32,10 @@ class SimpleServer(object):
 
         # time
         self.time = 0
+
+        # performance counter
+        self.pktInfo = {}
+        self.maxSeenPid = -1
         
 
     def ticking(self, packetList):
@@ -56,15 +60,69 @@ class SimpleServer(object):
         if packet.duid != self.serverId:
             """wrong destination"""
             return []
+        
+        
+        if self.ACKMode == None:
+            self.pktInfo[packet.pid] = self.time - packet.initTxTime
+            self.maxSeenPid = max(self.maxSeenPid, packet.pid)
+            return []
 
         if self.ACKMode == "SACK":
-            return [Packet(pid=packet.pid, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK, txTime=packet.txTime)]
+            pid = packet.pid
+
+            self.pktInfo[packet.pid] = self.time - packet.initTxTime
+            self.maxSeenPid = max(self.maxSeenPid, packet.pid)
+
         if self.ACKMode == "LC":
             if packet.pid == self.ack+1:
+                # ignore non-consecutive packets
                 self.ack = packet.pid
-            return [Packet(pid=self.ack, suid=self.serverId, duid=packet.suid, packetType=Packet.ACK, txTime=packet.txTime)]
+
+                self.pktInfo[packet.pid] = self.time - packet.initTxTime
+                self.maxSeenPid = self.ack 
+            pid = self.ack
+
+            
         
-        return []
+        packet.pid = pid
+        packet.duid=packet.suid
+        packet.suid=self.serverId
+        packet.packetType=Packet.ACK
+        return [packet]
+    
+    def serverSidePerf(self, clientPid=-1):
+        if clientPid > 0:
+            # we know that the client tries to send clientPid packets
+            self.maxSeenPid = clientPid
+        
+        # overall delivery prob 
+        sumDelay = 0
+        deliveriedPkts = len(self.pktInfo)
+
+        for key in self.pktInfo:
+            sumDelay += self.pktInfo[key]
+        
+        avgDelay = sumDelay / deliveriedPkts
+        # # deal with divide by 0 problem
+        # if deliveriedPkts != 0:
+        #     avgDelay = sumDelay / deliveriedPkts
+        # else:
+        #     avgDelay = -1
+        
+        # if self.maxSeenPid == 0:
+        #     deliveryRate = 0
+        # else:
+        #     deliveryRate = deliveriedPkts/self.maxSeenPid
+        deliveryRate = deliveriedPkts/self.maxSeenPid
+
+        return deliveriedPkts, deliveryRate, avgDelay
+
+    def printPerf(self, clientPid=-1):
+        deliveriedPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
+        print("Server {} Performance:".format(self.serverId))
+        print("%d pkts delivered" % deliveriedPkts)
+        print("{} percent delivery rate".format(deliveryRate))
+        print("average delay {}".format(avgDelay))
 
 
 class SimpleClient(object):
@@ -199,13 +257,14 @@ class SimpleClient(object):
             if self.ACKMode == "SACK":
                 numOfNewPackets = self.cwnd - len(self.pktsNACKed_SACK)
             elif self.ACKMode == "LC":
-                numOfNewPackets = self.cwnd - (self.pid - self.lastACKCounter_LC)
+                numOfNewPackets = self.cwnd - (self.pid - self.lastACK_LC)
+                # print("tx ", numOfNewPackets, " new pkts, because", (self.pid - self.lastACK_LC), " unchecked", " pid", self.pid, " lastACK", self.lastACK_LC)
             else:
                 raise "ARQ mode not support"
 
             if numOfNewPackets > 0:
                 if self.verbose:
-                        print("Client {} transmits ".format(self.clientId), end="")
+                    print("Client {} transmits ".format(self.clientId), end="")
                 for _ in range(numOfNewPackets):
                     newPacketList.append(Packet(
                             pid=self.pid, 
