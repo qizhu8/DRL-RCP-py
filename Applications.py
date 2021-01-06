@@ -102,18 +102,13 @@ class SimpleServer(object):
         for key in self.pktInfo:
             sumDelay += self.pktInfo[key]
         
-        avgDelay = sumDelay / deliveriedPkts
-        # # deal with divide by 0 problem
-        # if deliveriedPkts != 0:
-        #     avgDelay = sumDelay / deliveriedPkts
-        # else:
-        #     avgDelay = -1
+        # deal with divide by 0 problem
+        if deliveriedPkts != 0:
+            avgDelay = sumDelay / deliveriedPkts
+        else:
+            avgDelay = -1
         
-        # if self.maxSeenPid == 0:
-        #     deliveryRate = 0
-        # else:
-        #     deliveryRate = deliveriedPkts/self.maxSeenPid
-        deliveryRate = deliveriedPkts/self.maxSeenPid
+        deliveryRate = deliveriedPkts/(self.maxSeenPid+1) # +1 because pid starts from 0
 
         return deliveriedPkts, deliveryRate, avgDelay
 
@@ -121,7 +116,7 @@ class SimpleServer(object):
         deliveriedPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
         print("Server {} Performance:".format(self.serverId))
         print("%d pkts delivered" % deliveriedPkts)
-        print("{} percent delivery rate".format(deliveryRate))
+        print("{} % delivery rate".format(deliveryRate*100))
         print("average delay {}".format(avgDelay))
 
 

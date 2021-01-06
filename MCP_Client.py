@@ -16,14 +16,14 @@ from packet import Packet, PacketInfo
 
 class MCP_Client(SimpleClient):
 
-    def __init__(self, clientId, serverId, timeout=100, param={"period":3, "pktsPerPeriod": 4, "offset": 0}, verbose=False):
+    def __init__(self, clientId, serverId, timeout=100, beta1=1, beta2=1, param={"period":3, "pktsPerPeriod": 4, "offset": 0}, verbose=False):
         
         SimpleClient.__init__(self, clientId=clientId, serverId=serverId, timeout=timeout, appMode="periodic", param=param, verbose=verbose)
         
         """
         State = [
           "retransmission attempts", 
-          "retension time in buffer", 
+          "retention time in buffer", 
           "current packet drop rate",
           "current rtt",
         ]
@@ -38,8 +38,8 @@ class MCP_Client(SimpleClient):
         self.rttHat = timeout / 3
         self.avgDelay = 0
 
-        self.pktDeliveryDDL = 100 # no more attempts after 
-        self.pktRetransMax = 5    # no more attempts after
+        self.pktDeliveryDDL = 1000 # no more attempts after 
+        self.pktRetransMax = 10    # no more attempts after
 
         self.pktLossTrackingNum = 1000
         self.pktLossHat = 0.0
@@ -47,9 +47,10 @@ class MCP_Client(SimpleClient):
         self.pktLossInfoQueue = np.zeros(self.pktLossTrackingNum) # keep track of the most recent 100 packets
         self.pktLossInfoPtr = 0
 
-        self.alphaFairness_alpha = 0.9  # shape of alpha-fairness function
-        self.alphaFairness_beta1 = 4     # emphasis on pktLoss rather than delivery time
-        self.alphaFairness_beta2 = 4
+        self.alphaFairness_alpha = 0.1  # shape of alpha-fairness function
+        # self.alphaFairness_beta1 = 0    # emphasis on pktLoss rather than delivery time
+        self.alphaFairness_beta1 = beta1    # emphasis on packet delivery
+        self.alphaFairness_beta2 = beta2    # emphasis on retention time
     
     def _delayUpdate(self, delay):
         """auto-regression to estimate averaged delay. only for performance check."""
@@ -71,12 +72,16 @@ class MCP_Client(SimpleClient):
 
         self.pktLossHat = self.pktLostNum / self.pktLossTrackingNum
 
-    def calcReward(self, retensionTime):
+    def calcReward(self, isDelivered, retentionTime):
         def alphaFairness(x):
             if self.alphaFairness_alpha == 1: return np.log(x)
             return x**(1-self.alphaFairness_alpha) / (1-self.alphaFairness_alpha)
-        
-        return -self.alphaFairness_beta1 * alphaFairness(self.pktLossHat + 1) - self.alphaFairness_beta2 * alphaFairness(retensionTime)
+        # r = -self.alphaFairness_beta1 * alphaFairness(self.pktLossHat) 
+        r = self.alphaFairness_beta1 * alphaFairness(isDelivered+0.5) \
+            - self.alphaFairness_beta2 * alphaFairness(retentionTime/self.pktDeliveryDDL+0.5)
+
+        # print("r=", r)
+        return r
 
 
     def ticking(self, ACKPacketList=[], noNewPackets=False):
@@ -121,18 +126,18 @@ class MCP_Client(SimpleClient):
                 self._pktLossUpdate(isLost=False)
                 self._delayUpdate(delay)
                 # 
-                retensionTime = self.time - packet.initTxTime
-                reward = self.calcReward(retensionTime)
+                retentionTime = self.time - packet.initTxTime
+                reward = self.calcReward(1, retentionTime)
                 
                 prevState = [
                     packet.txAttempts-1, # transmission attempts while making decision
-                    packet.txTime-packet.initTxTime, # retension time when being retransmitted
+                    packet.txTime-packet.initTxTime, # retention time when being retransmitted
                     packet.rttHat,    # previous rttHat
                     packet.pktLossHat,    # previous pktLossHat
                 ]
                 curState = [
                     packet.txAttempts,
-                    retensionTime,
+                    retentionTime,
                     self.rttHat,
                     self.pktLossHat
                 ]
@@ -159,13 +164,13 @@ class MCP_Client(SimpleClient):
                 # claim the packet to be lost
                 self._pktLossUpdate(isLost=True)
 
-                retensionTime = self.time - self.pktsNACKed_SACK[pid].initTxTime
-                toGiveUp = retensionTime > self.pktDeliveryDDL or self.pktsNACKed_SACK[pid].txAttempts > self.pktRetransMax
+                retentionTime = self.time - self.pktsNACKed_SACK[pid].initTxTime
+                toGiveUp = retentionTime > self.pktDeliveryDDL or self.pktsNACKed_SACK[pid].txAttempts > self.pktRetransMax
 
                 # decide whether to retransmit 
                 curState = [
                     self.pktsNACKed_SACK[pid].txAttempts, # retransmission attempts
-                    self.time - self.pktsNACKed_SACK[pid].initTxTime, # retension time
+                    self.time - self.pktsNACKed_SACK[pid].initTxTime, # retention time
                     self.rttHat,
                     self.pktLossHat
                 ]
@@ -176,6 +181,8 @@ class MCP_Client(SimpleClient):
                     self.retransPkts += 1
                     self.pktsNACKed_SACK[pid].txTime = self.time  # waiting timer clear
                     self.pktsNACKed_SACK[pid].txAttempts += 1 # transmission attempt +1
+                    self.pktsNACKed_SACK[pid].rttHat = self.rttHat
+                    self.pktsNACKed_SACK[pid].pktLossHat = self.pktLossHat
                     packetList.append(Packet(
                         pid=pid, 
                         suid=self.clientId,
@@ -192,9 +199,18 @@ class MCP_Client(SimpleClient):
                     self._pktLossUpdate(isLost=True)
 
                     self.ignoredPkts += 1
-                    reward = self.calcReward(self.pktDeliveryDDL)
+                    reward = self.calcReward(0, self.time - self.pktsNACKed_SACK[pid].initTxTime)
+                    prevState = [
+                        self.pktsNACKed_SACK[pid].txAttempts, # transmission attempts while making decision
+                        self.time-self.pktsNACKed_SACK[pid].initTxTime, # retention time when being retransmitted
+                        self.pktsNACKed_SACK[pid].rttHat,    # previous rttHat
+                        self.pktsNACKed_SACK[pid].pktLossHat,    # previous pktLossHat
+                    ]
                     self.RL_Brain.storeExperience(
-                        s=curState,a=0,r=reward,s_=curState
+                        s=prevState,
+                        a=0,
+                        r=reward,
+                        s_=curState
                     )
                     self.RL_Brain.learn()
 
