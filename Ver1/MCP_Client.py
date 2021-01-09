@@ -9,7 +9,7 @@ not only ACK but also NACK (hacked)
 """
 import numpy as np
 
-from Applications import SimpleClient
+from applications import SimpleClient
 from RL_Brain import DQN
 from packet import Packet, PacketInfo
 

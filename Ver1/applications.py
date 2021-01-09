@@ -153,7 +153,6 @@ class SimpleClient(object):
                 setattr(self, key, param[key])
             
             # optinal keys
-            optionalKeys = {"ACKMode":None}
             for key in optionalKeys:
                 if key in param:
                     setattr(self, key, param[key])

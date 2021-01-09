@@ -1,4 +1,4 @@
-from Applications import SimpleServer, SimpleClient
+from applications import SimpleServer, SimpleClient
 from channel import SingleModeChannel
 from MCP_Client import MCP_Client
 import numpy as np
@@ -37,7 +37,6 @@ server_RL = SimpleServer(serverId=301, verbose=False, ACKMode="SACK") # must be 
 
 clientList = [client1, client2, client_UDP, client_ARQ, client_RL]
 serverList = [server1, server2, server_UDP, server_ARQ, server_RL]
-
 
 
 channel = SingleModeChannel(processRate=10, bufferSize=100, pktDropProb=0.1, verbose=False)
