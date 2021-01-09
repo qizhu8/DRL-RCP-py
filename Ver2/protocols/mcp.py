@@ -12,8 +12,9 @@ class MCP(BaseTransportLayerProtocol):
     }
 
     def __init__(self, suid, duid, params, txBufferLen=-1, verbose=False):
-        BaseTransportLayerProtocol.__init__(self, suid=suid, duid=duid, params=params, txBufferLen=txBufferLen, verbose=verbose)
+        super(MCP, self).__init__(suid=suid, duid=duid, params={}, txBufferLen=txBufferLen, verbose=verbose)
 
+        self.protocolName="MCP"
         self.cwnd = 0
         self.maxTxAttempts = 0
         self.timeout = 0
@@ -203,26 +204,13 @@ class MCP(BaseTransportLayerProtocol):
     
 
     def _filterOutTimeoutPkt(self, pid):
-
-        if self.timeout == -1: # disable this function
-            return []
-
-        if (self.time - self.pktInfo_dict[pid].txTime) >= self.timeout:
+        if self._isPktTimeout(pid):
             return [pid]
 
         return []
 
 
     def _filterOutPktsExceedRetentionTimeAndTxAttempts(self, NACKPktList):
-        def isExceedMaxTxAttempts(pid):
-            if self.maxTxAttempts == -1 or self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts:
-                return False
-            return True
-        
-        def isExceedMaxRetentionTime(pid):
-            if self.maxPktTxDDL == -1 or self.time - self.pktInfo_dict[pid].genTime < self.maxPktTxDDL:
-                return False
-            return True
         
         NACKPktList = list(set(NACKPktList))
         NACKPktList.sort()
@@ -230,8 +218,10 @@ class MCP(BaseTransportLayerProtocol):
         NACKPktList_filtered = []
 
         for pid in NACKPktList:
-            if isExceedMaxTxAttempts(pid) or isExceedMaxRetentionTime(pid):
-                if self.pktInfo_dict[pid].isFlying:
+            if pid not in self.pktInfo_dict:
+                continue
+            if self._isExceedMaxTxAttempts(pid) or self._isExceedMaxRetentionTime(pid):
+                if self._isPktFlying(pid):
                     self.numPktsFlying -= 1
 
                     self._pktLossUpdate(isLost=True)

@@ -20,8 +20,9 @@ class Window_ARQ(BaseTransportLayerProtocol):
     optionalKeys={"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1}
 
     def __init__(self, suid, duid, params, txBufferLen=None, verbose=False):
-        BaseTransportLayerProtocol.__init__(self, suid=suid, duid=duid, params=params, txBufferLen=txBufferLen)
-       
+        super(Window_ARQ, self).__init__(suid=suid, duid=duid, params={}, txBufferLen=txBufferLen)
+        
+        self.protocolName="Window ARQ"
         self.cwnd = 0
         self.maxTxAttempts = 0
         self.timeout = 0
@@ -30,7 +31,6 @@ class Window_ARQ(BaseTransportLayerProtocol):
         # ACKMode
         self.ACKMode = ""
         self.pktInfo_dict = {}
-        self.numPktsFlying = 0
         # LC param
         self.pid_LC = -1
         
@@ -45,11 +45,15 @@ class Window_ARQ(BaseTransportLayerProtocol):
     def ticking(self, ACKPktList=[]):
         self.time += 1
 
+        pidConsiderRetrans = []
         # process ACK and NACK packets
-        self._handleACK(ACKPktList)
+        pidConsiderRetrans += self._handleACK(ACKPktList)
 
         # handle timeout packets
-        self._handleTimeoutPkts()
+        pidConsiderRetrans += self._handleTimeoutPkts()
+
+        # push retrans packets in buffer
+        self._pushBackPktsToRetrans(pidConsiderRetrans)
 
         # generate new packets
         newPktList, retransPktList = self._getPktsToSend()
@@ -63,15 +67,28 @@ class Window_ARQ(BaseTransportLayerProtocol):
 
         return retransPktList + newPktList
     
+    def _pushBackPktsToRetrans(self, pidConsiderRetrans):
+        pidConsiderRetrans.sort(reverse=True)
+        
+        for pid in pidConsiderRetrans:
+            if self._isPktTimeout(pid) and not self._isPktFlying(pid):
+                self.txBuffer.appendleft(self.pktInfo_dict[pid].toPacket())
+                
+
+
 
     def _getPktsToSend(self):
         newPktList = []
         retransPktList = []
 
-        numOfNewPackets = min(self.cwnd-self.numPktsFlying, len(self.txBuffer))
+        numPktsFlying = 0
+        for pid in self.pktInfo_dict:
+            if self.pktInfo_dict[pid].isFlying:
+                numPktsFlying += 1
+
+        numOfNewPackets = min(self.cwnd-numPktsFlying, len(self.txBuffer))
         numOfNewPackets = max(numOfNewPackets, 0)
 
-        self.numPktsFlying += numOfNewPackets
         for _ in range(numOfNewPackets):
             pkt = self.txBuffer.popleft()
             pkt.txTime = self.time
@@ -115,17 +132,17 @@ class Window_ARQ(BaseTransportLayerProtocol):
             elif pkt.packetType == Packet.NACK:
                 NACKList.append(pkt)
 
-        self._handleNACK(NACKList)
+        pidConsiderRetrans = self._handleNACK(NACKList)
         if self.ACKMode == "SACK":
             self._handleACK_SACK(ACKList)
         elif self.ACKMode == "LC":
             self._handleACK_LC(ACKList)
+        
+        return pidConsiderRetrans
 
     def _handleACK_SACK(self, ACKPktList):
         for pkt in ACKPktList:
             if pkt.id in self.pktInfo_dict:
-                if self.pktInfo_dict[pkt.pid].isFlying:
-                    self.numPktsFlying -= 1
                 self.pktInfo_dict.pop(pkt.pid, None)
     
     def _handleACK_LC(self, ACKPktList):
@@ -139,54 +156,40 @@ class Window_ARQ(BaseTransportLayerProtocol):
         pidsInDict = list(self.pktInfo_dict.keys())
         for pid in pidsInDict:
             if pid <= maxACKedPid:
-                if pkt.pid in self.pktInfo_dict and self.pktInfo_dict[pkt.pid].isFlying:
-                    self.numPktsFlying -= 1
-                self.pktInfo_dict.pop(pid)
+                self.pktInfo_dict.pop(pid, None)
     
     def _handleNACK(self, NACKPacketList):
+        pidConsiderRetrans = []
         for pkt in NACKPacketList:
-            if pkt.pid in self.pktInfo_dict:
-                if self.pktInfo_dict[pkt.pid].isFlying == True:
-                    # we do track this packet
-                    self.txBuffer.appendleft(self.pktInfo_dict[pkt.pid].toPacket())
-                    self.pktInfo_dict[pkt.pid].isFlying = False
-                    self.numPktsFlying -= 1
-                else:
-                    # this packet is not considered to be tranmitted (due to delayed ack + failed retransmission)
-                    pass
-            else:
-                pass
-
-        
+            if self._isPktFlying(pkt.pid):
+                # we do track this packet
+                self.pktInfo_dict[pkt.pid].isFlying = False
+                pidConsiderRetrans.append(pkt.pid)
+        return pidConsiderRetrans
     
+
     def _handleTimeoutPkts(self):
+        pidConsiderRetrans = []
         pidsToCheck = list(self.pktInfo_dict.keys())
         pidsToCheck.sort(reverse=True)
         for pid in pidsToCheck:
-            self._handleTimeoutPkt(pid)
+            pidConsiderRetrans += self._handleTimeoutPkt(pid)
+        
+        return pidConsiderRetrans
 
     def _handleTimeoutPkt(self, pid):
         if self.timeout == -1: # disable this function
             return []
 
-        # print("Checking pkt", pid, "timeout, ",[
-        #     (self.maxTxAttempts == -1 or self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts),
-        #     (self.maxPktTxDDL == -1 or self.time - self.pktInfo_dict[pid].initTxTime < self.maxPktTxDDL),
-        #     (self.time - self.pktInfo_dict[pid].txTime) >= self.timeout
-        #     ])
         # check whether the packet still worth to stay in buffer
-        if  (self.maxTxAttempts == -1 or self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts) \
-        and (self.maxPktTxDDL == -1 or self.time - self.pktInfo_dict[pid].initTxTime < self.maxPktTxDDL):
+        if not self._isExceedMaxTxAttempts(pid) and not self._isExceedMaxRetentionTime(pid):
             # determine a packet to be timedout 
-            if (self.time - self.pktInfo_dict[pid].txTime) >= self.timeout:
-                if self.pktInfo_dict[pid].isFlying:
-                    self.numPktsFlying -= 1
-                self.txBuffer.appendleft(self.pktInfo_dict[pid].toPacket())
+            if self._isPktTimeout(pid):
                 self.pktInfo_dict[pid].isFlying = False
+                return [pid]
                 
         else:
-            if pid in self.pktInfo_dict:
-                self.pktInfo_dict.pop(pid, None) # ignore this packet
+            self.pktInfo_dict.pop(pid, None) # ignore this packet
             return []
 
         return []

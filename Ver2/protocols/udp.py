@@ -7,8 +7,10 @@ class UDP(BaseTransportLayerProtocol):
     docstring
     """
     def __init__(self, suid, duid, params={}, txBufferLen=None, verbose=False):
-        super(UDP, self).__init__(suid=suid, duid=duid, params=params, txBufferLen=txBufferLen, verbose=verbose)
+        super(UDP, self).__init__(suid=suid, duid=duid, params={}, txBufferLen=txBufferLen, verbose=verbose)
         
+        self.protocolName="UDP"
+
         #for UDP, we change self.txBuffer from deque to list
         self.txBufferLen = txBufferLen
         self.time = -1

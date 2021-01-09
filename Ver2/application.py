@@ -150,7 +150,8 @@ class EchoClient(object):
     def getDistinctPktSent(self):
         return self.transportObj.getDistinctPktSent()
     
-            
+    def getProtocolName(self):
+        return self.transportObj.protocolName
             
 class EchoServer(object):
     """
@@ -274,9 +275,9 @@ class EchoServer(object):
 
         return deliveriedPkts, deliveryRate, avgDelay
 
-    def printPerf(self, clientPid=-1):
+    def printPerf(self, clientPid=-1, clientProtocolName=""):
         deliveriedPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
-        print("Server {} Performance:".format(self.uid))
+        print("Server {} -{} Performance:".format(self.uid, clientProtocolName))
         print("\tpkts received  %d out of %d" % (deliveriedPkts, self.maxSeenPid+1))
         print("\tdelivery rate  {}% ".format(deliveryRate*100))
         print("\taverage delay  {}".format(avgDelay))
