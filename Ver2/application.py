@@ -222,29 +222,74 @@ class EchoServer(object):
             ACKPacketList.append(pkt)
         return ACKPacketList
 
-    def _handlePktList_LC(self, usefulPktList):
-        ACKPacketList = []
-        usefulPktList.sort(key=lambda r:r.pid)
+    # def _handlePktList_LC(self, usefulPktList):
+    #     ACKPacketList = []
+    #     usefulPktList.sort(key=lambda r:r.pid)
 
-        ACKNewPktList = []
-        for pkt in usefulPktList:
-            if pkt.pid == (self.ack+1):
-                self.ack=pkt.pid
-                if self.verbose:
-                    ACKNewPktList.append(pkt.pid)
-            self.pktInfo[pkt.pid] = self.time - pkt.genTime
-            self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
+    #     ACKNewPktList = []
+    #     for pkt in usefulPktList:
+    #         if pkt.pid == (self.ack+1):
+    #             self.ack=pkt.pid
+    #             if self.verbose:
+    #                 ACKNewPktList.append(pkt.pid)
+    #         self.pktInfo[pkt.pid] = self.time - pkt.genTime
+    #         self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
             
+    #         pkt.duid, pkt.suid = pkt.suid, pkt.duid
+    #         pkt.packetType = Packet.ACK
+    #         pkt.pid = self.ack
+    #         ACKPacketList.append(pkt)
+
+    #     if self.verbose and ACKNewPktList:
+    #         print("Server {} ACKs @ {}: ".format(self.uid, self.time), end="")
+    #         for pid in ACKNewPktList:
+    #             print(" {}".format(pid), end="")
+    #         print()
+        
+    #     return ACKPacketList
+
+
+    def _handlePktList_LC(self, usefulPktList):
+        # self.verbose = True
+        def updateACK():
+            """update self.ack to largest consecutive pkt id"""
+            # update self.ACK
+            for ack in range(self.ack+1, self.maxSeenPid+1):
+                if ack not in self.pktInfo: # we have cached this packet
+                    break
+                else:
+                    self.ack = ack
+
+        ACKPacketList = []
+
+        # step 1: record all packets
+        ACKNewPktList = [] # for printing only
+        for pkt in usefulPktList:
+            # update ACK. Note that self.ack is the largest consecutive packet id
+            if pkt.pid > self.ack:
+                # print("ACK @", self.time, " ", pkt.pid)
+                if pkt.pid not in self.pktInfo:
+                    self.pktInfo[pkt.pid] = self.time - pkt.genTime
+                    self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
+
+                    updateACK()
+
+                    if self.verbose:
+                        ACKNewPktList.append(pkt.pid)
+            
+
+            # gen ACK packet
             pkt.duid, pkt.suid = pkt.suid, pkt.duid
             pkt.packetType = Packet.ACK
             pkt.pid = self.ack
             ACKPacketList.append(pkt)
 
         if self.verbose and ACKNewPktList:
-            print("Server {} ACKs @ {}: ".format(self.uid, self.time), end="")
+            print("Server {} LCACK {} by recv @ {}: ".format(self.uid, self.ack, self.time), end="")
             for pid in ACKNewPktList:
                 print(" {}".format(pid), end="")
             print()
+            print("Server {} sends back {}: ".format(self.uid, [pkt.pid for pkt in ACKPacketList]), end="\n")
         
         return ACKPacketList
 

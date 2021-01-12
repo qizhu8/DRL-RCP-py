@@ -5,7 +5,7 @@ from channel import SingleModeChannel
 
 client1 = EchoClient(clientId=1, serverId=11, 
     protocolName="UDP", transportParam={}, 
-    trafficMode="periodic", trafficParam={"period":10, "pktsPerPeriod":100}, 
+    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":0}, 
     verbose=False)
 server1 = EchoServer(serverId=11, ACKMode=None, verbose=False)
 
@@ -16,44 +16,21 @@ client2 = EchoClient(clientId=2, serverId=11,
 server2 = EchoServer(serverId=12, ACKMode=None, verbose=False)
 
 
-
-
-
-
-
 """
 Protocols to compare
 """
-client_RL = EchoClient(clientId=101, serverId=111, 
-    protocolName="mcp", transportParam={"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1,
-    "beta1":10, "beta2":10, "alpha":0.1, # alpha-fairness beta1: emphasis on delivery, beta2: emphasis on delay
-    "gamma":0.9 }, 
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":2}, 
-    verbose=False)
-server_RL = EchoServer(serverId=111, ACKMode="SACK", verbose=False)
-
-client_ARQ = EchoClient(clientId=201, serverId=211, 
-    protocolName="window arq", transportParam={"cwnd": 40, "maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1, "ACKMode": "SACK"}, 
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":2},
-    verbose=False)
-server_ARQ = EchoServer(serverId=211, ACKMode="SACK", verbose=False)
-
-client_UDP = EchoClient(clientId=301, serverId=311, 
-    protocolName="UDP", transportParam={}, 
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":2}, 
-    verbose=False)
-server_UDP = EchoServer(serverId=311, ACKMode=None, verbose=False)
 
 client_TCP_Reno = EchoClient(clientId=401, serverId=411,
     protocolName="tcp_newreno", transportParam={"timeout":30, "IW":4}, # IW=2 if SMSS>2190, IW=3 if SMSS>3, else IW=4
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":2}, 
-    verbose=False)
-server_TCP_Reno = EchoServer(serverId=411, ACKMode="LC", verbose=False)
+    trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":3}, 
+    verbose=True
+    )
+server_TCP_Reno = EchoServer(serverId=411, ACKMode="LC", verbose=True)
 
-clientList = [client1, client2, client_RL, client_ARQ, client_UDP, client_TCP_Reno]
-serverList = [server1, server2, server_RL, server_ARQ, server_UDP, server_TCP_Reno]
+clientList = [client1, client2, client_TCP_Reno]
+serverList = [server1, server2, server_TCP_Reno]
 
-channel = SingleModeChannel(processRate=30, bufferSize=1000, pktDropProb=0.01, verbose=False)
+channel = SingleModeChannel(processRate=3, bufferSize=100, pktDropProb=0.01, verbose=False)
 
 
 # system time

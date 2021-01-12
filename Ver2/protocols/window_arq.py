@@ -68,6 +68,9 @@ class Window_ARQ(BaseTransportLayerProtocol):
         return retransPktList + newPktList
     
     def _pushBackPktsToRetrans(self, pidConsiderRetrans):
+        # remove redundant
+
+        pidConsiderRetrans = list(set(pidConsiderRetrans))
         pidConsiderRetrans.sort(reverse=True)
         
         for pid in pidConsiderRetrans:
@@ -88,6 +91,8 @@ class Window_ARQ(BaseTransportLayerProtocol):
 
         numOfNewPackets = min(self.cwnd-numPktsFlying, len(self.txBuffer))
         numOfNewPackets = max(numOfNewPackets, 0)
+
+        # print("numPktsFlying:", numPktsFlying, "numOfNewPkts", numOfNewPackets)
 
         for _ in range(numOfNewPackets):
             pkt = self.txBuffer.popleft()
@@ -142,7 +147,7 @@ class Window_ARQ(BaseTransportLayerProtocol):
 
     def _handleACK_SACK(self, ACKPktList):
         for pkt in ACKPktList:
-            if pkt.id in self.pktInfo_dict:
+            if pkt.pid in self.pktInfo_dict:
                 self.pktInfo_dict.pop(pkt.pid, None)
     
     def _handleACK_LC(self, ACKPktList):

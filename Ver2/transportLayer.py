@@ -1,7 +1,7 @@
 from protocols.udp import UDP
 from protocols.window_arq import Window_ARQ
 from protocols.mcp import MCP
-from protocols.tcp_window import TCP_Reno
+from protocols.tcp_window import TCP_NewReno
 from protocols.tcp_rate import TCP_Vegas
 
 class TransportLayerHelper(object):
@@ -14,7 +14,7 @@ class TransportLayerHelper(object):
             "udp": UDP,
             "window arq":Window_ARQ,
             "mcp": MCP,
-            "tcp_reno": TCP_Reno,
+            "tcp_newreno": TCP_NewReno,
             "tcp_vegas": TCP_Vegas
         }
         self.suid = suid

@@ -72,10 +72,10 @@ class BaseTransportLayerProtocol(object):
 
     def _isPktTimeout(self, pid):
         """A packet is considered to be timeout if not ACK/NACK after timeout"""
-        if pid not in self.pktInfo_dict:
+        if self.timeout == -1 or pid not in self.pktInfo_dict:
             return False
         else:
-            if self.time-self.pktInfo_dict[pid].txTime:
+            if (self.time-self.pktInfo_dict[pid].txTime) > self.timeout:
                 return True
             else:
                 return False
