@@ -116,8 +116,11 @@ class Window_ARQ(BaseTransportLayerProtocol):
         
         for _ in range(newPktNum):
             newpkt = self.txBuffer.popleft()
+            newpkt.txTime = self.time
+            
             self.distincPktsSent += 1
             self.maxPidSent = max(self.maxPidSent, newpkt.pid)
+
 
             newPktList.append(newpkt)
             
