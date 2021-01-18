@@ -6,7 +6,6 @@ import numpy as np
 from packet import Packet
 from transportLayer import TransportLayerHelper
 
-
 class EchoClient(object):
     """
     EchoClient in charges of generating packets to sent to the server.
@@ -152,7 +151,15 @@ class EchoClient(object):
     
     def getProtocolName(self):
         return self.transportObj.protocolName
-            
+
+
+
+
+
+
+
+
+
 class EchoServer(object):
     """
     docstring
@@ -180,8 +187,24 @@ class EchoServer(object):
         self.pktInfo = {}
         self.maxSeenPid = -1
 
+        # a list recording the number of new acks in each tick
+        self.pktsPerTick = []
+
+        # param to record utility per tick
+        self.ack_prev = -1
+        self.sumDelay = 0
+        self.sumDelay_prev = 0
+        self.deliveredPkts = 0
+        self.deliveredPkts_prev = 0
+        self.clientSidePid = -1
+        self.clientSidePid_prev = -1
+        self.perfRecords = []
+        self.newPids = set()
+
     def ticking(self, pktList):
         self.time += 1
+
+        self.pktsPerTick.append(0) # initialize the number of pkts received to be 0
 
         ACKPktList = self._handlePkts(pktList)
 
@@ -190,10 +213,12 @@ class EchoServer(object):
 
     def _handlePkts(self, pktList=[]):
         usefulPktList = []
+
         for pkt in pktList:
             if pkt.duid != self.uid:
                 continue
             usefulPktList.append(pkt)
+
         
         if not self.ACKMode:
             return self._handlePktList_None(usefulPktList)
@@ -204,6 +229,9 @@ class EchoServer(object):
 
     def _handlePktList_None(self, usefulPktList):
         for pkt in usefulPktList:
+            if pkt.pid not in self.pktInfo:
+                self.pktsPerTick[-1] += 1
+
             self.pktInfo[pkt.pid] = self.time - pkt.genTime
             self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
         return []
@@ -214,6 +242,10 @@ class EchoServer(object):
         
 
         for pkt in usefulPktList:
+            if pkt.pid not in self.pktInfo:
+                self.pktsPerTick[-1] += 1
+                self.newPids.add(pkt.pid)
+
             self.pktInfo[pkt.pid] = self.time - pkt.genTime
             self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
 
@@ -221,32 +253,6 @@ class EchoServer(object):
             pkt.packetType = Packet.ACK
             ACKPacketList.append(pkt)
         return ACKPacketList
-
-    # def _handlePktList_LC(self, usefulPktList):
-    #     ACKPacketList = []
-    #     usefulPktList.sort(key=lambda r:r.pid)
-
-    #     ACKNewPktList = []
-    #     for pkt in usefulPktList:
-    #         if pkt.pid == (self.ack+1):
-    #             self.ack=pkt.pid
-    #             if self.verbose:
-    #                 ACKNewPktList.append(pkt.pid)
-    #         self.pktInfo[pkt.pid] = self.time - pkt.genTime
-    #         self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
-            
-    #         pkt.duid, pkt.suid = pkt.suid, pkt.duid
-    #         pkt.packetType = Packet.ACK
-    #         pkt.pid = self.ack
-    #         ACKPacketList.append(pkt)
-
-    #     if self.verbose and ACKNewPktList:
-    #         print("Server {} ACKs @ {}: ".format(self.uid, self.time), end="")
-    #         for pid in ACKNewPktList:
-    #             print(" {}".format(pid), end="")
-    #         print()
-        
-    #     return ACKPacketList
 
 
     def _handlePktList_LC(self, usefulPktList):
@@ -269,6 +275,8 @@ class EchoServer(object):
             if pkt.pid > self.ack:
                 # print("ACK @", self.time, " ", pkt.pid)
                 if pkt.pid not in self.pktInfo:
+                    self.pktsPerTick[-1] += 1
+
                     self.pktInfo[pkt.pid] = self.time - pkt.genTime
                     self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
 
@@ -302,27 +310,81 @@ class EchoServer(object):
         # overall delivery prob 
         sumDelay = 0
         if self.ACKMode == "LC":
-            deliveriedPkts = self.ack+1
+            deliveredPkts = self.ack+1
             for pid in range(self.ack+1):
                 sumDelay += self.pktInfo[pid]
         else:
-            deliveriedPkts = len(self.pktInfo)
+            deliveredPkts = len(self.pktInfo)
             for pid in self.pktInfo:
                 sumDelay += self.pktInfo[pid]
         
         # deal with divide by 0 problem
-        if deliveriedPkts != 0:
-            avgDelay = sumDelay / deliveriedPkts
+        if deliveredPkts != 0:
+            avgDelay = sumDelay / deliveredPkts
         else:
-            avgDelay = -1
+            avgDelay = 0
         
-        deliveryRate = deliveriedPkts/(self.maxSeenPid+1) # +1 because pid starts from 0
+        deliveryRate = deliveredPkts/(self.maxSeenPid)
 
-        return deliveriedPkts, deliveryRate, avgDelay
+        return deliveredPkts, deliveryRate, avgDelay
+
+    def recordPerfInThisTick(self, clientPid=-1, utilityCalcHandler=None, utilityCalcHandlerParams={}):
+        # used to record the utility increment
+        if clientPid >= 0:
+            # we know that the client tries to send clientPid packets
+            self.clientSidePid = clientPid
+        else:
+            self.clientSidePid = self.maxSeenPid
+
+        # overall delivery prob 
+        
+        if self.ACKMode == "LC":
+            self.deliveredPkts = self.ack+1
+            for pid in range(self.ack_prev+1, self.ack+1):
+                self.sumDelay += self.pktInfo[pid]
+        else:
+            self.deliveredPkts = len(self.pktInfo)
+            for pid in self.newPids:
+                self.sumDelay += self.pktInfo[pid]
+            self.newPids.clear()
+        
+        delayInc = self.sumDelay - self.sumDelay_prev
+        deliveredPktsInc = self.deliveredPkts - self.deliveredPkts_prev
+
+        clientDeliveredPktsInc = self.clientSidePid - self.clientSidePid_prev
+
+        # deal with divide by 0 problem
+        if deliveredPktsInc != 0:
+            avgDelay = delayInc / deliveredPktsInc
+        else:
+            avgDelay = 0
+        
+        if clientDeliveredPktsInc != 0:
+            deliveryRate = deliveredPktsInc/(clientDeliveredPktsInc)
+        else:
+            deliveryRate = 0
+
+        self.sumDelay_prev = self.sumDelay
+        self.clientSidePid_prev = self.clientSidePid
+        self.deliveredPkts_prev = self.deliveredPkts
+        
+        record = [self.time, deliveredPktsInc, deliveryRate, avgDelay, 0, 0]
+        if utilityCalcHandler and utilityCalcHandlerParams:
+            record[-2] = utilityCalcHandler(
+                deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=1, 
+                alpha=utilityCalcHandlerParams["alpha"], 
+                beta1=utilityCalcHandlerParams["beta1"], 
+                beta2=utilityCalcHandlerParams["beta2"]
+            )
+            record[-1] = record[-2] * deliveredPktsInc
+
+        self.perfRecords.append(record)
+
+        return 
 
     def printPerf(self, clientPid=-1, clientProtocolName=""):
-        deliveriedPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
+        deliveredPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
         print("Server {} -{} Performance:".format(self.uid, clientProtocolName))
-        print("\tpkts received  %d out of %d" % (deliveriedPkts, self.maxSeenPid+1))
+        print("\tpkts received  %d out of %d" % (deliveredPkts, self.maxSeenPid+1))
         print("\tdelivery rate  {}% ".format(deliveryRate*100))
         print("\taverage delay  {}".format(avgDelay))

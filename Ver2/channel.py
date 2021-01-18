@@ -176,22 +176,31 @@ class SingleModeChannel(object):
         NACKPacketList = []
         pktsDropped_loss = 0
         pktDrop_fullQueue = 0
+        dropPidList_loss = []
+        dropPidList_fullQueue = []
+
         for packet in packetList:
             if self.ifKeepThePkt():
                 flag = self.channelBuffer.enqueue(packet)
                 if not flag:
+                    pktDrop_fullQueue += 1
+                    dropPidList_fullQueue.append("{suid}-{pid}".format(suid=packet.suid, pid=packet.pid))
+
+                    # generate NACK packet inplace
                     NACKPacketList.append(self._genNACKFromPkt(packet))
 
-                    pktDrop_fullQueue += 1
             else:
+                pktsDropped_loss += 1
+                dropPidList_loss.append("{suid}-{pid}".format(suid=packet.suid, pid=packet.pid))
+                
+                # generate NACK packet inplace
                 NACKPacketList.append(self._genNACKFromPkt(packet))
 
-                pktsDropped_loss += 1
         if self.verbose:
             if pktsDropped_loss:
-                print("[-] Channel: {} loss".format(pktsDropped_loss))
+                print("[-] Channel: {} loss {}".format(pktsDropped_loss, dropPidList_loss))
             if pktDrop_fullQueue:
-                print("[-] Channel: {} drop".format(pktDrop_fullQueue))
+                print("[-] Channel: {} drop {}".format(pktDrop_fullQueue, dropPidList_fullQueue))
         
         return NACKPacketList
 

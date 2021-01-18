@@ -1,5 +1,8 @@
 import abc
 from collections import deque
+import numpy as np
+import logging
+
 
 class BaseTransportLayerProtocol(object):
     """
@@ -35,6 +38,10 @@ class BaseTransportLayerProtocol(object):
         self.timeout = -1
         self.parseParamByMode(params=params, requiredKeys=BaseTransportLayerProtocol.requiredKeys, optionalKeys=BaseTransportLayerProtocol.optionalKeys)
 
+        # RTT and RTO update RFC 6298
+        self.SRTT = 1 #
+        self.RTTVAR = 1 # variance of RTT 
+
         self.txBufferLen = txBufferLen
         self.txBuffer = deque(maxlen=txBufferLen) # default to be infinite queue
 
@@ -52,7 +59,7 @@ class BaseTransportLayerProtocol(object):
     def _isExceedMaxTxAttempts(self, pid):
         if self.maxTxAttempts == -1:
             return False
-        if pid in self.pktInfo_dict[pid] and self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts:
+        if pid in self.pktInfo_dict and self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts:
             return False
         return True
     
@@ -91,7 +98,7 @@ class BaseTransportLayerProtocol(object):
         
         for idx in range(len(pktList)):
             self.txBuffer.append(pktList[idx])
-    
+
     @abc.abstractclassmethod
     def ticking(self, ACKPktList=[]):
         """
@@ -126,4 +133,47 @@ class BaseTransportLayerProtocol(object):
 
         return
     
+    @staticmethod
+    def calcUtility(deliveryRate, avgDelay, alpha, beta1, beta2, deliveredPkts=1):
+        def alphaFairness(x):
+            if alpha == 1: return np.log(x)
+            return x**(1-alpha) / (1-alpha)
+        
+        # r = beta1 * alphaFairness(deliveryRate+0.01) + beta2 * (1/(avgDelay+1))
 
+        # part 1 inc function of delivery rate 
+        # r_1 = (alphaFairness(deliveryRate+0.01))
+        r_1 = deliveryRate # alpha=0
+        
+        # part 2 dec function of latency
+        # r_2 = - alphaFairness(avgDelay)
+        r_2 = - np.log(avgDelay+1) # aveDelay can be 0.
+
+        r = beta1 * r_1 + beta2 * r_2
+        return r*deliveredPkts
+
+    def _rttUpdate(self, rtt):
+        """
+        Roughtly the same as RFC 6298, using auto-regression. But the true rtt estimation, or RTO 
+        contains two more variables, RTTVAR (rtt variance) and SRTT (smoothed rtt).
+        R' is the rtt for a packet.
+        RTTVAR <- (1 - beta) * RTTVAR + beta * |SRTT - R'|
+        SRTT <- (1 - alpha) * SRTT + alpha * R'
+
+        The values recommended by RFC are alpha=1/8 and beta=1/4.
+
+
+        RTO <- SRTT + max (G, K*RTTVAR) where K =4 is a constant, 
+        G is a clock granularity in seconds, the number of ticks per second.
+        We temporarily simulate our network as a 1 tick per second, so G=1 here
+
+        http://sgros.blogspot.com/2012/02/calculating-tcp-rto.html
+        """
+        self.RTTVAR = self.RTTVAR * 0.75 + abs(self.RTTVAR-rtt) * 0.25
+        self.SRTT = self.SRTT * 0.875 + rtt * (0.125)
+
+
+    def _timeoutUpdate(self):
+        # self.timeout = self.SRTT * 3
+        if self.timeout != -1: # we enable timeout
+            self.timeout = self.SRTT + max(1, 4 * self.RTTVAR)

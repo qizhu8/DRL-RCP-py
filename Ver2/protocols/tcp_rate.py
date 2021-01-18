@@ -6,6 +6,7 @@ class TCP_Vegas(BaseTransportLayerProtocol):
         BaseTransportLayerProtocol.__init__(self, suid=suid, duid=duid, params=params, txBufferLen=txBufferLen)
 
         self.time = -1
+
     
     def ticking(self, ACKPktList=[]):
         self.time += 1

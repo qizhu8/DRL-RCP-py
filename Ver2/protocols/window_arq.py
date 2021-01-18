@@ -1,6 +1,7 @@
 from protocols.baseTransportLayerProtocol import BaseTransportLayerProtocol
 from packet import Packet, PacketInfo
 
+
 class Window_ARQ(BaseTransportLayerProtocol):
     """
     General working procedure:
@@ -38,6 +39,7 @@ class Window_ARQ(BaseTransportLayerProtocol):
 
         self.time = -1
 
+        self.maxPidSent = -1
 
         self.parseParamByMode(params=params, requiredKeys=Window_ARQ.requiredKeys, optionalKeys=Window_ARQ.optionalKeys)
 
@@ -105,7 +107,10 @@ class Window_ARQ(BaseTransportLayerProtocol):
                 retransPktList.append(pkt)
             else:
                 self.pktInfo_dict[pkt.pid] = self._genNewPktInfoFromPkt(pkt)
-                self.distincPktsSent += 1
+                if pkt.pid > self.maxPidSent:
+                    self.distincPktsSent += 1
+                    self.maxPidSent = pkt.pid
+
                 newPktList.append(pkt)
         
         return newPktList, retransPktList
@@ -194,6 +199,7 @@ class Window_ARQ(BaseTransportLayerProtocol):
                 return [pid]
                 
         else:
+            # print("[-] ignore ", pid)
             self.pktInfo_dict.pop(pid, None) # ignore this packet
             return []
 

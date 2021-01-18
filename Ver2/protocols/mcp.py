@@ -52,7 +52,6 @@ class MCP(BaseTransportLayerProtocol):
 
         self.parseParamByMode(params=params, requiredKeys=MCP.requiredKeys, optionalKeys=MCP.optionalKeys)
 
-    
     def ticking(self, ACKPktList=[]):
         self.time += 1 
         
@@ -169,7 +168,7 @@ class MCP(BaseTransportLayerProtocol):
                     delay = self.time-self.pktInfo_dict[pkt.pid].genTime
                     rtt = self.time-self.pktInfo_dict[pkt.pid].txTime
                     self._delayUpdate(delay=delay)
-                    self._RTTUpdate(rtt=rtt)
+                    self._rttUpdate(rtt=rtt)
                     self._pktLossUpdate(isLost=False)
 
                     reward = self.calcReward(isDelivered=True, retentionTime=delay)
@@ -283,12 +282,14 @@ class MCP(BaseTransportLayerProtocol):
     """RL related functions"""
     
     def calcReward(self, isDelivered, retentionTime):
-        def alphaFairness(x):
-            if self.alpha == 1: return np.log(x)
-            return x**(1-self.alpha) / (1-self.alpha)
-        
-        r = self.beta1 * alphaFairness(isDelivered+0.5) \
-            - self.beta2 * alphaFairness(retentionTime/self.maxPktTxDDL+0.5)
+
+        r = self.calcUtility(
+                deliveryRate=isDelivered,
+                avgDelay=retentionTime, 
+                alpha=self.alpha, 
+                beta1=self.beta1, 
+                beta2=self.beta2, 
+                deliveredPkts=1)
 
         return r
     
@@ -296,10 +297,10 @@ class MCP(BaseTransportLayerProtocol):
         """auto-regression to estimate averaged delay. only for performance check."""
         self.avgDelay = 0.99 * self.avgDelay + 0.01 * delay
 
-    def _RTTUpdate(self, rtt):
-        """this function uses auto-regression to estimate RTT """
-        # print("\t\t\t rtt ", rtt)
-        self.rttHat = self.rttHat * 0.99 + rtt * 0.01
+    # def _rttUpdate(self, rtt):
+    #     """this function uses auto-regression to estimate RTT """
+    #     # print("\t\t\t rtt ", rtt)
+    #     self.rttHat = self.rttHat * 0.99 + rtt * 0.01
     
     def _pktLossUpdate(self, isLost):
         isLost = int(isLost)

@@ -32,7 +32,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
 
         self.parseParamByMode(params=params, requiredKeys=TCP_NewReno.requiredKeys, optionalKeys=TCP_NewReno.optionalKeys)
 
-        self.rttHat = self.timeout / 3 #
+        
 
         self.pktToRetransmit = []
         self.cwnd = self.IW
@@ -52,8 +52,8 @@ class TCP_NewReno(BaseTransportLayerProtocol):
     def ticking(self, ACKPktList=[]):
         self.time += 1 
         
-        # print("@{} before ACK cwnd={} ssthres={} mode={}".format(self.time, self.cwnd, self.ssthresh, self.curTxMode))
-        # process ACK and fast retransmits to determine the number of packets to transmit 
+        oldCwnd=self.cwnd
+
         self._handleACK(ACKPktList)
         # print("@{} after ACK cwnd={} ssthres={} mode={}".format(self.time, self.cwnd, self.ssthresh, self.curTxMode))
 
@@ -69,7 +69,9 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                 retransPkts=[],
                 newPktList=pktList
                 )
-
+            print("Client {suid}->{duid} @ {time} cwnd: {oldCwnd}->{cwnd}".format(
+                suid=self.suid, duid=self.duid, time=self.time, oldCwnd=oldCwnd, cwnd=self.cwnd
+            ))
         return pktList
     
     def _handleACK(self, ACKPktList):
@@ -79,8 +81,6 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         for pkt in ACKPktList:
             if pkt.duid != self.suid:
                 continue
-            # if pkt.pid not in self.pktInfo_dict:
-            #     continue
             if pkt.packetType == Packet.ACK:
                 ACKPidList.append(pkt.pid)
                 # update rtt
@@ -146,6 +146,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                     # decrease cwnd
                     # retransmit the last unACKed packet
                         self.cwnd -= 1
+                        self.cwnd = max(self.cwnd, 0) # TODO
                         self.pktToRetransmit += [self.pktInfo_dict[pid+1].toPacket()]
                         
                     self._timeoutUpdate()
@@ -219,7 +220,9 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         pidList = list(self.pktInfo_dict.keys())
         pidList.sort()
 
+        # print("cur timeout is ", self.timeout)
         for pid in pidList:
+            # print("pkt {} queuingTime {}".format(pid, self.time-self.pktInfo_dict[pid].txTime))
             if self._isPktTimeout(pid):
                 if self.verbose:
                     print("[-]Client {uid} @ {time} Pkt {pid} is timeout {queuingTime} >= {timeout}".format(uid=self.suid, time=self.time, pid=pid, queuingTime=self.time-self.pktInfo_dict[pid].txTime, timeout=self.timeout))
@@ -267,8 +270,6 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                 print("cwnd={}, sshthresh={}, high_water={}".format(self.cwnd, self.ssthresh, self.high_water))
         return 
     
-    def _rttUpdate(self, rtt):
-        self.rttHat = self.rttHat * 0.99 + rtt * 0.01
     
-    def _timeoutUpdate(self):
-        self.timeout = self.rttHat * 3
+    
+    

@@ -30,7 +30,7 @@ client_ARQ = SimpleClient(clientId=200, serverId=201, timeout=30, appMode="windo
 server_ARQ = SimpleServer(serverId=201, ACKMode="LC", verbose=False)
 
 client_RL = MCP_Client(clientId=300, serverId=301, timeout=30, 
-    beta1=1, beta2=0.1,
+    beta1=1, beta2=0.01,
     param={"period":3, "pktsPerPeriod": 4, "offset": 3, "ACKMode": None}, verbose=False)
 server_RL = SimpleServer(serverId=301, verbose=False, ACKMode="SACK") # must be SACK
 

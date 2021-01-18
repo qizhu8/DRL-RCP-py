@@ -12,20 +12,23 @@ class DQNNet(nn.Module):
     """Our decision making network"""
     def __init__(self, nStates, nActions):
         super(DQNNet, self).__init__()
-        self.fc1 = nn.Linear(nStates, 100)
-        # self.fc2 = nn.Linear(50, 100)
-        self.out = nn.Linear(100, nActions)
+        self.fc1 = nn.Linear(nStates, 20)
+        self.fc2 = nn.Linear(20, 50)
+        self.fc3 = nn.Linear(50, 20)
+        self.out = nn.Linear(20, nActions)
+        # self.out = nn.Linear(50, nActions)
 
         # initialize weights
         self.fc1.weight.data.normal_(0, 1)
-        # self.fc2.weight.data.normal_(0, 1)
+        self.fc2.weight.data.normal_(0, 1)
+        self.fc3.weight.data.normal_(0, 1)
         self.out.weight.data.normal_(0, 1)
     
     def forward(self, state):
         # layer 1
         x = F.relu(self.fc1(state))
-        # layer 2
-        # x = F.relu(self.fc2(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         # out
         return self.out(x)
 
@@ -34,11 +37,11 @@ class DQN(object):
     def __init__(self, 
         nStates,                # dimension of the system state
         nActions,               # dimension of the action space
-        batchSize=32,           #
-        memoryCapacity=2e3,     # maximum number of experiences to store
-        learningRate=1e-3,      #
+        batchSize=64,           #
+        memoryCapacity=1e5,     # maximum number of experiences to store
+        learningRate=1e-6,      #
         updateFrequency=100,     # period to replace target network with evaluation network 
-        epsilon=0.9,            # greedy policy parameter 
+        epsilon=0.95,            # greedy policy parameter 
         gamma=0.9,              # reward discount
         deviceStr="cpu"         # primary computing device cpu or cuda
         ):
@@ -51,7 +54,13 @@ class DQN(object):
         self.tgtNet = DQNNet(nStates=nStates, nActions=nActions)
 
         # selection of optimizer and loss function
-        self.optimizer = torch.optim.Adam(self.evalNet.parameters(), lr=learningRate)
+        # self.optimizer = torch.optim.Adam(self.evalNet.parameters(), lr=learningRate)
+        self.optimizer = torch.optim.RMSprop(self.evalNet.parameters(), lr=learningRate)
+        self.optimizer = torch.optim.SGD(self.evalNet.parameters(), lr=learningRate, weight_decay=0.995)
+
+        # self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=0.99) # decay lr
+
+
         self.lossFunc = nn.MSELoss()
 
         self.batchSize = batchSize
@@ -69,6 +78,9 @@ class DQN(object):
         self.updateFrequency = updateFrequency
 
         self.device = torch.device(deviceStr)
+
+
+        
 
 
     def chooseAction(self, state, evalOn=False):
@@ -125,6 +137,10 @@ class DQN(object):
         # apply Bellman's equation
         tgtQ = rewards + self.gamma * nextQ.max(1)[0].view(-1, 1)
         loss = self.lossFunc(curQ, tgtQ)
+
+        if self.learningCounter == 1:
+            # self.lr_scheduler.step() # decay learning rate
+            print("loss=", loss)
 
         # back propagation
         self.optimizer.zero_grad()
