@@ -1,9 +1,39 @@
 import numpy as np
 import logging
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from protocols.baseTransportLayerProtocol import BaseTransportLayerProtocol
 from RL_Brain import DQN
 from packet import Packet, PacketInfo
+
+
+class DQNNet(nn.Module):
+    """Our decision making network"""
+    def __init__(self, nStates, nActions):
+        super(DQNNet, self).__init__()
+        self.fc1 = nn.Linear(nStates, 20)
+        self.fc2 = nn.Linear(20, 50)
+        self.fc3 = nn.Linear(50, 20)
+        self.out = nn.Linear(20, nActions)
+        # self.out = nn.Linear(50, nActions)
+
+        # initialize weights
+        self.fc1.weight.data.normal_(0, 1)
+        self.fc2.weight.data.normal_(0, 1)
+        self.fc3.weight.data.normal_(0, 1)
+        self.out.weight.data.normal_(0, 1)
+    
+    def forward(self, state):
+        # layer 1
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        # out
+        return self.out(x)
+
 
 class MCP(BaseTransportLayerProtocol):
     requiredKeys = {}
@@ -39,7 +69,19 @@ class MCP(BaseTransportLayerProtocol):
         self.time = -1
 
         # RL related variables
-        self.RL_Brain = DQN(nActions=2, nStates=4)
+        self.RL_Brain = DQN(
+            nActions=2, nStates=4, 
+            evalNet=DQNNet(nActions=2, nStates=4),
+            tgtNet=DQNNet(nActions=2, nStates=4),
+            batchSize=64,           #
+            memoryCapacity=1e5,     # maximum number of experiences to store
+            learningRate=1e-6,      #
+            updateFrequency=100,    # period to replace target network with evaluation network 
+            epsilon=0.95,           # greedy policy parameter 
+            gamma=0.9,              # reward discount
+            weight_decay=0.995,
+            verbose=False
+        )
         # self.SRTT = 0 # implemented in base class
         self.avgDelay = 0
 
@@ -118,8 +160,9 @@ class MCP(BaseTransportLayerProtocol):
                 self._pktLossUpdate(isLost=False)
 
                 reward = self.calcReward(isDelivered=True, retentionTime=delay)
-                reward_prev = self.calcReward(isDelivered=False, retentionTime=self.buffer[pid].RLState[1])
-                rewardDiff = reward - reward_prev
+                # reward_prev = self.calcReward(isDelivered=False, retentionTime=self.buffer[pid].RLState[1])
+                # rewardDiff = reward - reward_prev
+                rewardDiff = reward
                 # store the ACKed packet info
                 self.RL_Brain.storeExperience(
                     s=self.buffer[pid].RLState,
@@ -145,6 +188,7 @@ class MCP(BaseTransportLayerProtocol):
             newpkt = self.txBuffer.popleft()
 
             newpkt.txTime = self.time
+            newpkt.initTxTime = self.time
 
             self.addNewPktAndUpdateMemory(newpkt)
 
@@ -222,9 +266,9 @@ class MCP(BaseTransportLayerProtocol):
         if pid in self.buffer:
             delay = self.time - self.buffer[pid].genTime
             reward = self.calcReward(isDelivered=False, retentionTime=delay)
-            reward_prev = self.calcReward(isDelivered=False, retentionTime=self.buffer[pid].RLState[1])
-            rewardDiff = reward - reward_prev
-
+            # reward_prev = self.calcReward(isDelivered=False, retentionTime=self.buffer[pid].RLState[1])
+            # rewardDiff = reward - reward_prev
+            rewardDiff = reward
             self.RL_Brain.storeExperience(
                 s=self.buffer[pid].RLState,
                 a=0,

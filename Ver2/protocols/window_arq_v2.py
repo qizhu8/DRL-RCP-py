@@ -97,8 +97,19 @@ class Window_ARQ(BaseTransportLayerProtocol):
         ACKPidList = []
         for pkt in ACKPktList:
             if pkt.duid == self.suid and pkt.packetType == Packet.ACK:
+                if pkt.pid not in self.window.buffer:
+                    continue
+
                 ACKPidList.append(pkt.pid)
-                rtt = self.time-pkt.txTime
+                rtt = self.time-self.window.buffer[pkt.pid].txTime
+                # print("rtt=", rtt, self.time, pkt.txTime)
+                # if rtt > (50/3 + 1):
+                #     print(pkt)
+                #     if pkt.pid in self.window.buffer:
+                #         print(self.window.buffer[pkt.pid])
+                #     else:
+                #         print("pkt not in buffer")
+
                 self._rttUpdate(rtt)
                 self._timeoutUpdate()
 
@@ -117,6 +128,7 @@ class Window_ARQ(BaseTransportLayerProtocol):
         for _ in range(newPktNum):
             newpkt = self.txBuffer.popleft()
             newpkt.txTime = self.time
+            newpkt.initTxTime = self.time
             
             self.distincPktsSent += 1
             self.maxPidSent = max(self.maxPidSent, newpkt.pid)

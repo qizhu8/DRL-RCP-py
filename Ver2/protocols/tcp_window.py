@@ -84,8 +84,9 @@ class TCP_NewReno(BaseTransportLayerProtocol):
             if pkt.packetType == Packet.ACK:
                 ACKPidList.append(pkt.pid)
                 # update rtt
-                rtt = self.time - pkt.txTime
-                self._rttUpdate(rtt)
+                if pkt.pid in self.pktInfo_dict:
+                    rtt = self.time-self.pktInfo_dict[pkt.pid].txTime
+                    self._rttUpdate(rtt)
             
             # TCP reno doesn't have NACK
             # elif pkt.packetType == Packet.NACK: 

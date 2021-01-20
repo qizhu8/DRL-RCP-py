@@ -1,3 +1,7 @@
+Ver2/results/
+*.pkl
+*.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

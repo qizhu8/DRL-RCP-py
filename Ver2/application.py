@@ -231,6 +231,7 @@ class EchoServer(object):
         for pkt in usefulPktList:
             if pkt.pid not in self.pktInfo:
                 self.pktsPerTick[-1] += 1
+                self.newPids.add(pkt.pid)
 
             self.pktInfo[pkt.pid] = self.time - pkt.genTime
             self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
@@ -378,6 +379,7 @@ class EchoServer(object):
             )
             record[-1] = record[-2] * deliveredPktsInc
 
+        # print("In this ", record)
         self.perfRecords.append(record)
 
         return 

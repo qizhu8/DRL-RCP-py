@@ -26,8 +26,11 @@ class Packet(object):
     
 
     def __str__(self):
-        return "{suid} -> {duid} - pid: {pid} - txTime: {txTime} - genTime: {genTime}- type: {type}".format(
-            suid=self.suid, duid=self.duid, pid=self.pid, type="M" if self.packetType==0 else "A", txTime=self.txTime, genTime=self.genTime)
+        return "{suid} -> {duid}  pid:{pid} tx@:{txTime} gen@:{genTime} type: {type}".format(
+            suid=self.suid, duid=self.duid, 
+            pid=self.pid, 
+            txTime=self.txTime, genTime=self.genTime,
+            type="M" if self.packetType==0 else "A" )
      
 
 class PacketInfo(object):

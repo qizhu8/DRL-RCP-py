@@ -11,6 +11,7 @@ from channel import SingleModeChannel
 alpha = 0.5     # fairness on small values
 beta1 = 0.1    # emphasis on delivery
 beta2 = 1      # emphasis on delay
+utilityCalcHandlerParams = {"alpha":alpha, "beta1":beta1, "beta2":beta2}
 
 client1 = EchoClient(clientId=1, serverId=11, 
     protocolName="UDP", transportParam={}, 
@@ -130,6 +131,7 @@ for client, server in zip(clientList[2:], serverList[2:]): # ignore the first tw
     # for plot
     deliveredPktsPerSlot[client.getProtocolName()] = [server.pktsPerTick]
 
+deliveredPktsPerSlot["utilityParam"] = utilityCalcHandlerParams
 deliveredPktsPerSlot["general"] = table
 deliveredPktsPerSlot["header"] = header
 print(tabulate(table, headers=header))

@@ -146,10 +146,14 @@ class BaseTransportLayerProtocol(object):
         r_1 = deliveryRate # alpha=0
         
         # part 2 dec function of latency
-        # r_2 = - alphaFairness(avgDelay)
-        r_2 = - np.log(avgDelay+1) # aveDelay can be 0.
+        # r_2 = - alphaFairness(avgDelay+1)
+        r_2 = 1/alphaFairness(avgDelay+1)
+        
+        # aveDelay can be 0. We plus 1 also to guarantee that r_2 is always negative
+        # r_2 = - np.log((avgDelay+1)) 
 
         r = beta1 * r_1 + beta2 * r_2
+
         return r*deliveredPkts
 
     def _rttUpdate(self, rtt):
