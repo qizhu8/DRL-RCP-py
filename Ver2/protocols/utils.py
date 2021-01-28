@@ -10,22 +10,48 @@ class Window(object):
     cwnd: the expected maximum number of packets to send without being acked.
     
     """
+
+    perfDictDefault = {
+        "maxWinCap": 0, # maximum number of pkts in buffer
+    }
+    
+
     def __init__(self, uid, cwnd=-1, maxPktTxDDL=-1, maxTxAttempts=-1, logLevel=logging.DEBUG):
 
         self.uid = uid
+        self.defaultValue = {
+            "maxPktTxDDL": 0,
+            "maxTxAttempts": 0,
+            "cwnd": 0
+        }
 
-        if cwnd < 0:
+        if cwnd < 0: # cwnd=-1 means unlimited
             self.cwnd = sys.maxsize
         else:
-            self.cwnd = cwnd # cwnd=-1 means unlimited
-
+            self.cwnd = cwnd
 
         self.buffer = dict() # used to store packets and packet information
 
         self.maxPktTxDDL = maxPktTxDDL
         self.maxTxAttempts = maxTxAttempts
 
-    
+        # store default value
+        self.defaultValue["maxPktTxDDL"] = self.maxPktTxDDL
+        self.defaultValue["maxTxAttempts"] = self.maxTxAttempts
+        self.defaultValue["cwnd"] = self.cwnd
+
+        # performance check
+        self.perfDict = Window.perfDictDefault
+
+    def reset(self):
+        self.perfDict = Window.perfDictDefault
+        self.buffer.clear()
+
+        self.maxPktTxDDL = self.defaultValue["maxPktTxDDL"]
+        self.maxTxAttempts = self.defaultValue["maxTxAttempts"]
+        self.cwnd = self.defaultValue["cwnd"]
+
+
     def bufferSize(self):
         """
         Return the number of packets in buffer
@@ -53,7 +79,12 @@ class Window(object):
                 if self._hasSpace():
                     self.buffer[pid] = self._genNewPktInfoFromPkt(pkt)
 
+
                     logging.info("included pkt {pid}. {bufferSize} pkts in buffer (size={cwnd})".format(pid=pid, bufferSize=self.bufferSize(), cwnd=self.cwnd))
+
+                    # performance update
+                    self.perfDict["maxWinCap"] = max(self.perfDict["maxWinCap"], self.bufferSize())
+
                 else: # no room for new packets
 
                     logging.info("no room for pkt {pid}. {bufferSize} pkts in buffer (size={cwnd})".format(pid=pid, bufferSize=self.bufferSize(), cwnd=self.cwnd))

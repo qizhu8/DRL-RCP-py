@@ -40,90 +40,6 @@ class SingleModeChannel(object):
     docstring
     """
 
-    supportModes = {None, "gaussian", "poisson", "uniform"}
-    gaussianParam = {
-        "required": {"mean":10, "var":10}, 
-        "optional": {"min":0, "max":-1, "isBounded":False}}
-    poissonParam = {
-        "required": {"mean":10}, 
-        "optional": {"min":0, "max":-1, "isBounded":False}}
-    uniformParam = {"required": {"min":0, "max":10},
-        "optional": {}}
-
-    @classmethod
-    def parseMode(cls, mode):
-        """
-        verify user's input mode
-        """
-        if mode:
-            assert isinstance(mode, str), "mode should be a string among "+cls.supportModes.__str__()
-            mode = mode.lower()
-            assert mode in cls.supportModes, "support modes are "+cls.supportModes.__str__()
-            return mode
-        return mode
-    
-    @classmethod
-    def parseParam(cls, mode, param):
-        """
-        verify the param
-        """
-        
-        def paramCheck(param, defaultParam, paramTemplate):
-            """
-            check parameter based on the template
-            """
-            _param = defaultParam
-            # check required keys
-            for key in paramTemplate["required"]:
-                assert key in param, "key " + key + " is required"
-                
-                _param[key] = param[key]
-            
-            # check optional keys
-            for key in paramTemplate["optional"]:
-                if(key in param):
-                    _param[key] = param[key]
-
-            return _param
-    
-        def checkGaussianParam(cls, param):
-            """ """
-            _param = {"mean":10, "var":10, "min":0, "max":-1, "isBounded":False}
-            _param = paramCheck(param, _param, cls.gaussianParam)
-            
-            # check min max
-            if _param["isBounded"]:
-                assert _param["max"] >= _param["min"], "min ({min_val}) should be no larger than max ({max_val})".format(min_val=_param["min"], max_val=_param["max"])
-            return _param
-        
-        def checkUniformParam(cls, param):
-            """ """
-            _param = {"min":0, "max":-1}
-            _param = paramCheck(param, _param, cls.uniformParam)
-            
-            # check min max
-            assert _param["max"] >= _param["min"], "min ({min_val}) should be no larger than max ({max_val})".format(min_val=_param["min"], max_val=_param["max"])
-            return _param
-
-        def checkPoissonParam(cls, param):
-            """ """
-            _param = {"mean":10, "min":0, "max":-1, "isBounded":False}
-            _param = paramCheck(param, _param, cls.poissonParam)
-            
-            # check min max
-            if _param["isBounded"]:
-                assert _param["max"] >= _param["min"], "min ({min_val}) should be no larger than max ({max_val})".format(min_val=_param["min"], max_val=_param["max"])
-            return _param
-        
-        processFuncDict = {
-            "gaussian":checkGaussianParam,
-            "poisson":checkPoissonParam, 
-            "uniform":checkUniformParam}
-
-        if mode:
-            return processFuncDict[mode](cls, param)
-        return None
-
     @classmethod
     def parseQueueSize(cls, bufferSize):
         assert isinstance(bufferSize, int), "bufferSize should be an integer"
@@ -143,15 +59,17 @@ class SingleModeChannel(object):
         
         return True 
 
-    def __init__(self, processRate=1, mode=None, param=None, bufferSize=0, pktDropProb=0, verbose=False):
-        self.mode = self.parseMode(mode)
-        self.param = self.parseParam(self.mode, param)
+    def __init__(self, processRate=1, rtt=0, bufferSize=0, pktDropProb=0, verbose=False):
         self.pktDropProb = pktDropProb
         
         self.bufferSize = self.parseQueueSize(bufferSize)
         self.processRate = self.parseProcessRate(processRate)
 
         self.verbose = verbose
+
+        self.time = 0
+        
+        self.rtt = rtt
 
         # initialize buffer
         self._initBuffer()
@@ -164,15 +82,21 @@ class SingleModeChannel(object):
         """
         initialize the buffer
         """
-        self.channelBuffer = ChannelBuffer(self.bufferSize)
+        self.channelBuffer = ChannelBuffer(self.bufferSize, rtt=self.rtt)
 
     def getLog(self):
         return self.channelBuffer.getLog()
     
+
+    def isFull(self):
+        return self.channelBuffer.isFull()
+
     """
     channel operations
     """
     def putPackets(self, packetList):
+        self.time += 1
+
         NACKPacketList = []
         pktsDropped_loss = 0
         pktDrop_fullQueue = 0
@@ -181,7 +105,7 @@ class SingleModeChannel(object):
 
         for packet in packetList:
             if self.ifKeepThePkt():
-                flag = self.channelBuffer.enqueue(packet)
+                flag = self.channelBuffer.enqueue(packet, time=self.time)
                 if not flag:
                     pktDrop_fullQueue += 1
                     dropPidList_fullQueue.append("{suid}-{pid}".format(suid=packet.suid, pid=packet.pid))
@@ -212,7 +136,7 @@ class SingleModeChannel(object):
     def getPackets(self):
         packetList = []
         for _ in range(self.processRate):
-            flag, _packet = self.channelBuffer.dequeue()
+            flag, _packet = self.channelBuffer.dequeue(self.time)
             if not flag:
                 break
             packetList.append(_packet)

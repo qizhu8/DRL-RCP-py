@@ -22,7 +22,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         self.verbose = verbose
 
         # for TCP reno, only packet not ACK are in pktInfo => NACK/Timeout will be wiped out and moved to txBuffer
-        self.pktInfo_dict={} 
+        self.window = {} 
 
         self.IW = 4 # initial cwnd window
         self.maxTxAttempts = -1
@@ -48,6 +48,9 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         self.high_water = -1 # 
         self.distincPktsSent = 0 # used as a feedback information for the server to compute delivery rate
 
+        # override perDict by adding new items
+        self.perfDict["newPktsSent"] = 0
+        self.perfDict["retransAttempts"] = 0
     
     def ticking(self, ACKPktList=[]):
         self.time += 1 
@@ -62,6 +65,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
 
         # generate new packets
         pktList = self._getPktsToSend()
+        self.perfDict["newPktsSent"] += len(pktList)
 
         # print the progress if verbose=True
         if self.verbose:
@@ -84,8 +88,8 @@ class TCP_NewReno(BaseTransportLayerProtocol):
             if pkt.packetType == Packet.ACK:
                 ACKPidList.append(pkt.pid)
                 # update rtt
-                if pkt.pid in self.pktInfo_dict:
-                    rtt = self.time-self.pktInfo_dict[pkt.pid].txTime
+                if pkt.pid in self.window:
+                    rtt = self.time-self.window[pkt.pid].txTime
                     self._rttUpdate(rtt)
             
             # TCP reno doesn't have NACK
@@ -148,13 +152,13 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                     # retransmit the last unACKed packet
                         self.cwnd -= 1
                         self.cwnd = max(self.cwnd, 0) # TODO
-                        self.pktToRetransmit += [self.pktInfo_dict[pid+1].toPacket()]
+                        self.pktToRetransmit += [self.window[pid+1].toPacket()]
                         
                     self._timeoutUpdate()
                     
-                for oldPid in list(self.pktInfo_dict.keys()):
+                for oldPid in list(self.window.keys()):
                     if oldPid <= pid:
-                        self.pktInfo_dict.pop(oldPid, None)
+                        self.window.pop(oldPid, None)
                         if self.curTxMode == TCP_NewReno.FAST_RECOVERY:
                             self.cwnd -= 1
 
@@ -176,11 +180,14 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         pktList = []
 
         for pkt in self.pktToRetransmit:
-            self.pktInfo_dict[pkt.pid] = self._genNewPktInfoFromPkt(pkt)
+            self.window[pkt.pid] = self._genNewPktInfoFromPkt(pkt)
         pktList += self.pktToRetransmit
 
+        # include retransmission 
+        self.perfDict["retransAttempts"] += len(self.pktToRetransmit)
+
         # number of packets to transfer from txbuffer to TCP's tx window
-        numOfNewPackets = min(self.cwnd- len(self.pktInfo_dict), len(self.txBuffer))
+        numOfNewPackets = min(self.cwnd- len(self.window), len(self.txBuffer))
         numOfNewPackets = max(numOfNewPackets, 0)
 
         for _ in range(numOfNewPackets):
@@ -193,7 +200,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                 self.maxPidSent = pkt.pid
                 self.distincPktsSent += 1
 
-            self.pktInfo_dict[pkt.pid] = self._genNewPktInfoFromPkt(pkt)
+            self.window[pkt.pid] = self._genNewPktInfoFromPkt(pkt)
 
         
         self.pktToRetransmit = []
@@ -218,15 +225,15 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         # Once there is at least one timeout ack, switch to Retransmission mode
         # 
 
-        pidList = list(self.pktInfo_dict.keys())
+        pidList = list(self.window.keys())
         pidList.sort()
 
         # print("cur timeout is ", self.timeout)
         for pid in pidList:
-            # print("pkt {} queuingTime {}".format(pid, self.time-self.pktInfo_dict[pid].txTime))
+            # print("pkt {} queuingTime {}".format(pid, self.time-self.window[pid].txTime))
             if self._isPktTimeout(pid):
                 if self.verbose:
-                    print("[-]Client {uid} @ {time} Pkt {pid} is timeout {queuingTime} >= {timeout}".format(uid=self.suid, time=self.time, pid=pid, queuingTime=self.time-self.pktInfo_dict[pid].txTime, timeout=self.timeout))
+                    print("[-]Client {uid} @ {time} Pkt {pid} is timeout {queuingTime} >= {timeout}".format(uid=self.suid, time=self.time, pid=pid, queuingTime=self.time-self.window[pid].txTime, timeout=self.timeout))
                 # switch to Retransmission mode 
                 # push the packet to buffer (retransmit)
                 # update timeout, cwnd, ssthresh
@@ -238,8 +245,8 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                 self.curTxMode = TCP_NewReno.RETRANSMISSION
 
 
-                self.pktToRetransmit += [self.pktInfo_dict[pid].toPacket()]
-                self.pktInfo_dict.pop(pid, None)
+                self.pktToRetransmit += [self.window[pid].toPacket()]
+                self.window.pop(pid, None)
 
 
                 self.cwnd = 1
@@ -251,14 +258,14 @@ class TCP_NewReno(BaseTransportLayerProtocol):
 
         # the missing packet is lastACKPid+1
         missPid = lastACKPid+1
-        if missPid in self.pktInfo_dict:
+        if missPid in self.window:
             # switch to Fast Retransmission mode
             # send the missing packet
             # update cwnd and ssthresh
             if self.curTxMode == TCP_NewReno.FAST_RECOVERY:
                 pass
             else:
-                self.pktToRetransmit += [self.pktInfo_dict[missPid].toPacket()]
+                self.pktToRetransmit += [self.window[missPid].toPacket()]
                 self.ssthresh = max(self.cwnd//2, 1)
                 self.cwnd = self.ssthresh+3
                 self.high_water = self.maxPidSent
@@ -271,6 +278,15 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                 print("cwnd={}, sshthresh={}, high_water={}".format(self.cwnd, self.ssthresh, self.high_water))
         return 
     
+    def reset(self):
+        # reset the object
+        self.perfDict = BaseTransportLayerProtocol.perfDictDefault
+
+        self.window.clear()
+        return 
     
-    
-    
+    def clientSidePerf(self):
+        for key in self.perfDict:
+            print("{key}:{val}".format(key=key, val=self.perfDict[key]))
+
+        return self.perfDict

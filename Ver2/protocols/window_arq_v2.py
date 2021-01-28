@@ -40,6 +40,8 @@ class Window_ARQ(BaseTransportLayerProtocol):
     def __init__(self, suid, duid, params, txBufferLen=None, verbose=False):
         super(Window_ARQ, self).__init__(suid=suid, duid=duid, params={}, txBufferLen=txBufferLen)
 
+
+
         if verbose:
             logLevel = logging.DEBUG
         else:
@@ -65,8 +67,18 @@ class Window_ARQ(BaseTransportLayerProtocol):
 
         self.parseParamByMode(params=params, requiredKeys=Window_ARQ.requiredKeys, optionalKeys=Window_ARQ.optionalKeys)
 
+        if self.cwnd <= 0:
+            self.protocolName="ARQ_inf_wind"
+        else:
+            self.protocolName="ARQ_finit_wind"
+
+
         # initialize the congestion window 
         self.window = Window(uid=suid, cwnd=self.cwnd, maxPktTxDDL=self.maxPidSent, maxTxAttempts=self.maxTxAttempts, logLevel=logLevel)
+
+        # performance 
+        self.perfDict["newPktsSent"] = 0
+        self.perfDict["retransAttempts"] = 0
 
 
     def ticking(self, ACKPktList):
@@ -79,9 +91,11 @@ class Window_ARQ(BaseTransportLayerProtocol):
 
         # handle timeout packets
         pktsToRetransmit = self.window.getRetransPkts(curTime=self.time, RTO=self.timeout)
+        self.perfDict["retransAttempts"] += len(pktsToRetransmit)
 
         # fetch new packets based on cwnd and packets in buffer
         newPktList = self._getPktsToSend()
+        self.perfDict["newPktsSent"] += len(newPktList)
 
         # print the progress if verbose=True
         if self.verbose:
@@ -140,3 +154,14 @@ class Window_ARQ(BaseTransportLayerProtocol):
         self.window.pushPkts(self.time, newPktList)
 
         return newPktList
+
+    def clientSidePerf(self):
+        # generate performance report
+        self.perfDict["maxWin"] = self.window.perfDict["maxWinCap"]
+
+        for key in self.perfDict:
+            print("{key}:{val}".format(key=key, val=self.perfDict[key]))
+        return self.perfDict
+
+        
+

@@ -2,6 +2,7 @@
 Different from the scenario in SimulationEnvironment.py, all protocols to be evaluated are not going to compete with each other. At a time only the one protocol is going to be tested.
 """
 import sys
+from os import path
 import numpy as np
 from tabulate import tabulate
 import matplotlib.pyplot as plt
@@ -27,24 +28,31 @@ if len(sys.argv) > 4:
 else:
     pklFilename = "perfData2_{alpha}_{beta1}_{beta2}.pkl".format(alpha=alpha, beta1=beta1, beta2=beta2)
 
-print("results save to \result"+pklFilename)
+print("results save to \\result\\"+pklFilename)
 
 
-client1 = EchoClient(clientId=1, serverId=11, 
-    protocolName="UDP", transportParam={}, 
-    trafficMode="periodic", trafficParam={"period":10, "pktsPerPeriod":100}, 
-    verbose=False)
-server1 = EchoServer(serverId=11, ACKMode=None, verbose=False)
+if len(sys.argv) > 5:
+    simulationPeriod = int(sys.argv[5]) # unit ticks / time slots
+else:
+    simulationPeriod = int(100000) # unit ticks / time slots
 
-client2 = EchoClient(clientId=2, serverId=12, 
-    protocolName="UDP", transportParam={}, 
-    trafficMode="periodic", trafficParam={"period":2, "pktsPerPeriod":1}, 
-    verbose=False)
-server2 = EchoServer(serverId=12, ACKMode=None, verbose=False)
+"""
+add background traffic
+"""
+env_clients = []
+env_servers = []
+for clientId in range(1, 2+1):
+
+    client = EchoClient(clientId=clientId, serverId=10+clientId, 
+        protocolName="UDP", transportParam={}, 
+        trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1}, 
+        verbose=False)
+    server = EchoServer(serverId=10+clientId, ACKMode=None, verbose=False)
+    
+    env_clients.append(client)
+    env_servers.append(server)
 
 
-env_clients = [client1, client2]
-env_servers = [server1, server2]
 
 
 
@@ -55,43 +63,71 @@ Protocols to compare
 client_RL = EchoClient(clientId=101, serverId=111, 
     protocolName="mcp", transportParam={"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1,
     "beta1":beta1, "beta2":beta2, "alpha":alpha, # alpha-fairness beta1: emphasis on delivery, beta2: emphasis on delay
-    "gamma":0.9 }, 
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":3}, 
+    "gamma":0.9,
+    "learnRetransmissionOnly": True}, # whether only learn the data related to retransmission
+    trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1}, 
     verbose=False)
 server_RL = EchoServer(serverId=111, ACKMode="SACK", verbose=False)
 
-client_ARQ = EchoClient(clientId=201, serverId=211, 
+client_ARQ_finit = EchoClient(clientId=201, serverId=211, 
+    protocolName="window arq", transportParam={"cwnd": 40, "maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1, "ACKMode": "SACK"}, 
+    trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1},
+    verbose=False)
+server_ARQ_finit = EchoServer(serverId=211, ACKMode="SACK", verbose=False)
+
+client_ARQ_infinit_cwnd = EchoClient(clientId=301, serverId=311, 
     protocolName="window arq", transportParam={"cwnd": -1, "maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1, "ACKMode": "SACK"}, 
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":3},
+    trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1},
     verbose=False)
-server_ARQ = EchoServer(serverId=211, ACKMode="SACK", verbose=False)
+server_ARQ_infinit_cwnd = EchoServer(serverId=311, ACKMode="SACK", verbose=False)
 
-client_UDP = EchoClient(clientId=301, serverId=311, 
+client_UDP = EchoClient(clientId=401, serverId=411, 
     protocolName="UDP", transportParam={}, 
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":3}, 
+    trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1}, 
     verbose=False)
-server_UDP = EchoServer(serverId=311, ACKMode=None, verbose=False)
+server_UDP = EchoServer(serverId=411, ACKMode=None, verbose=False)
 
-client_TCP_Reno = EchoClient(clientId=401, serverId=411,
-    protocolName="tcp_newreno", transportParam={"timeout":30, "IW":4}, # IW=2 if SMSS>2190, IW=3 if SMSS>3, else IW=4
-    trafficMode="periodic", trafficParam={"period":4, "pktsPerPeriod":3}, 
-    verbose=False)
-server_TCP_Reno = EchoServer(serverId=411, ACKMode="LC", verbose=False)
+# client_TCP_Reno = EchoClient(clientId=401, serverId=411,
+#     protocolName="tcp_newreno", transportParam={"timeout":30, "IW":4}, # IW=2 if SMSS>2190, IW=3 if SMSS>3, else IW=4
+#     trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":2}, 
+#     verbose=False)
+# server_TCP_Reno = EchoServer(serverId=411, ACKMode="LC", verbose=False)
 
 # test_clients = [client_UDP]
 # test_servers = [server_UDP]
+# test_clients = [client_ARQ_finit]
+# test_servers = [server_ARQ_finit]
 # test_clients = [client_RL]
 # test_servers = [server_RL]
 # test_clients = [client_RL, client_UDP, client_ARQ, client_TCP_Reno]
 # test_servers = [server_RL, server_UDP, server_ARQ, server_TCP_Reno]
-test_clients = [client_RL, client_UDP, client_ARQ, client_TCP_Reno]
-test_servers = [server_RL, server_UDP, server_ARQ, server_TCP_Reno]
+test_clients = [client_RL, client_UDP, client_ARQ_finit, client_ARQ_infinit_cwnd]
+test_servers = [server_RL, server_UDP, server_ARQ_finit, server_ARQ_infinit_cwnd]
 
 def test_client(client, server):
-    # system time
-    channel = SingleModeChannel(processRate=3, bufferSize=100, pktDropProb=0.00, verbose=False)
 
-    simulationPeriod = int(100000) # unit ticks / time slots
+    serverPerfFilename = client.getProtocolName()+"_perf.pkl"
+
+    if client.getProtocolName().lower() not in {"mcp"}:
+        #check whether can load the previous performance file directly
+        
+        if path.exists(serverPerfFilename):
+            print("find file ", serverPerfFilename)
+            clientSidePerf, distincPktsSent, clientPid = server.calcPerfBasedOnDataFile(
+                serverPerfFilename,
+                utilityCalcHandler=client.transportObj.instance.calcUtility,
+                utilityCalcHandlerParams=utilityCalcHandlerParams
+            )
+            
+            # hacking
+            client.pid = clientPid
+            client.transportObj.instance.distincPktsSent = distincPktsSent
+            client.transportObj.instance.perfDict = clientSidePerf.copy()
+            return
+
+
+    # system time
+    channel = SingleModeChannel(processRate=3, bufferSize=60, rtt=20, pktDropProb=0.25, verbose=False)
 
     clientList = env_clients + [client]
     serverList = env_servers + [server]
@@ -109,11 +145,20 @@ def test_client(client, server):
 
     channel._initBuffer()
 
-    for time in range(1, simulationPeriod):
+    while not channel.isFull(): # fill the channel with environment packets
+        packetList_enCh = []
+        for clientId in np.random.permutation(len(env_clients)):
+            packetList_enCh += env_clients[clientId].ticking(ACKPacketList)
+        channel.putPackets(packetList_enCh)
 
+
+
+
+    packetList_enCh = []
+    for time in range(1, simulationPeriod+1):
         ACKPacketList = []
         # step 1: each server processes remaining pkts 
-        for serverId in np.random.permutation(len(serverList)):
+        for serverId in range(len(serverList)):
             ACKPacketList += serverList[serverId].ticking(packetList_deCh)
 
         # step 2: clients generate packets
@@ -137,7 +182,13 @@ def test_client(client, server):
         if time % (simulationPeriod//10) == 0:
             print("time ", time, " =================")
             print("RTT", client.transportObj.instance.SRTT)
+            client.transportObj.instance.clientSidePerf()
             server.printPerf(client.getDistinctPktSent(), client.getProtocolName())
+    
+    server.storePerf(serverPerfFilename,
+        clientPid=client.pid,
+        distincPktsSent=client.getDistinctPktSent(), 
+        clientSidePerf=client.transportObj.instance.clientSidePerf())
 
 # test each pair of client and server
 
@@ -151,8 +202,11 @@ header = ["protocol", "pkts generated", "pkts sent", "pkts delivered", "delivery
 table = []
 
 deliveredPktsPerSlot = dict()
-
+deliveredPktsPerSlot["protocols"] = []
 for client, server in zip(test_clients, test_servers): # ignore the first two 
+    deliveredPktsPerSlot["protocols"].append(client.getProtocolName())
+    deliveredPktsPerSlot[client.getProtocolName()] = dict()
+
     # for display
     deliveredPkts, deliveryRate, avgDelay = server.serverSidePerf(client.getDistinctPktSent())
     table.append([client.getProtocolName(),
@@ -168,8 +222,13 @@ for client, server in zip(test_clients, test_servers): # ignore the first two
             deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=deliveredPkts, 
             alpha=alpha, beta1=beta1, beta2=beta2)
     ])
-    # for plot
-    deliveredPktsPerSlot[client.getProtocolName()] = [server.pktsPerTick, server.perfRecords]
+    server.printPerf(client.getDistinctPktSent(), client.getProtocolName())
+    client.transportObj.instance.clientSidePerf()
+    
+    # store data
+    deliveredPktsPerSlot[client.getProtocolName()]["serverPerf"] = [server.pktsPerTick, server.perfRecords]
+    deliveredPktsPerSlot[client.getProtocolName()]["clientPerf"] = client.transportObj.instance.clientSidePerf()
+    
 
 deliveredPktsPerSlot["utilityParam"] = utilityCalcHandlerParams
 deliveredPktsPerSlot["general"] = table

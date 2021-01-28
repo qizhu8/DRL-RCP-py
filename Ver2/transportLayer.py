@@ -4,7 +4,6 @@ from protocols.window_arq_v2 import Window_ARQ
 # from protocols.mcp import MCP
 from protocols.mcp_v2 import MCP
 from protocols.tcp_window import TCP_NewReno
-from protocols.tcp_rate import TCP_Vegas
 
 class TransportLayerHelper(object):
     """
@@ -17,7 +16,6 @@ class TransportLayerHelper(object):
             "window arq":Window_ARQ,
             "mcp": MCP,
             "tcp_newreno": TCP_NewReno,
-            "tcp_vegas": TCP_Vegas
         }
         self.suid = suid
         self.duid = duid
@@ -25,6 +23,7 @@ class TransportLayerHelper(object):
         self.protocolName = protocolName.lower()
         assert self.protocolName in supportProtocols, protocolName + " is not supported. Choose from "+list(supportProtocols.keys).__str__()
         self.instance = supportProtocols[self.protocolName](suid=suid, duid=duid, params=params, txBufferLen=txBufferLen, verbose=verbose)
+        self.protocolName = self.instance.protocolName # some protocol will add a more detailed suffix, e.g. ARQ_finit_window
 
 
     def receiveFromApplication(self, pktList):

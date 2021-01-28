@@ -1,7 +1,7 @@
 """
 As the filename, this script implement an Reinforment Learning brain.
 """
-
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -43,6 +43,9 @@ class DQN(object):
 
 
         self.lossFunc = nn.MSELoss()
+        self.loss = sys.maxsize
+        self.divergeCounter = sys.maxsize # if self.divergeCounter > 3, turn on Greedy because of bad perf
+        self.convergeCounter = 0
 
         self.batchSize = batchSize
         self.learningCounter = 0 # learning steps before updating tgtNet
@@ -57,6 +60,7 @@ class DQN(object):
         self.epsilon = epsilon
         self.turnOffGreedyLoss = turnOffGreedyLoss
         self.globalEvalOn = False # True: ignore greedy random policy
+        self.isConverge = False # whether the network meets the converge
         self.gamma = gamma
         self.updateFrequency = updateFrequency
 
@@ -107,6 +111,8 @@ class DQN(object):
         sampleIdxs = np.random.choice(availableExperiences, min(availableExperiences, self.batchSize))
         experiences = self.memory[sampleIdxs, :]
 
+        # use the history state, history action, reward, and the ground truth new state
+        # to train a regression network that predicts the reward correct.
         states = torch.FloatTensor(experiences[:, :self.nStates])
         actions = torch.LongTensor(experiences[:, self.nStates:self.nStates+1].astype(int))
         rewards = torch.FloatTensor(experiences[:, self.nStates+1:self.nStates+2])
@@ -122,14 +128,36 @@ class DQN(object):
         tgtQ = rewards + self.gamma * nextQ.max(1)[0].view(-1, 1)
         loss = self.lossFunc(curQ, tgtQ)
 
-
-        if not self.globalEvalOn and loss < self.turnOffGreedyLoss:
-            print("turn off greedy")
-            self.globalEvalOn = True
-
+        self.loss = loss.cpu().detach().numpy()
         if self.verbose and self.learningCounter == 1:
             # self.lr_scheduler.step() # decay learning rate
-            print("loss=", loss)
+            print("loss=", self.loss)
+
+        if loss < self.turnOffGreedyLoss:
+            self.isConverge = True
+        
+        if loss > 20*self.turnOffGreedyLoss:
+            self.isConverge = False
+
+        # if not self.globalEvalOn and loss < self.turnOffGreedyLoss:
+        #     self.convergeCounter += 1
+        #     self.divergeCounter = 0
+        #     if self.convergeCounter > 3:
+        #         if self.verbose:
+        #             print("[+] turn off greedy: loss {loss} < {threshold}".format(loss=self.loss, threshold=self.turnOffGreedyLoss))
+        #         self.isConverge = True
+        #         self.globalEvalOn = True
+        
+        # if self.globalEvalOn and loss > 20*self.turnOffGreedyLoss:
+        #     self.convergeCounter = 0
+        #     self.divergeCounter += 1
+        #     if self.divergeCounter > 3: # three consecutive bad performance
+        #         if self.verbose:
+        #             print("[-] turn on greedy: loss {loss} > {threshold}".format(loss=self.loss, threshold=20*self.turnOffGreedyLoss))
+        #         self.isConverge = False
+        #         self.globalEvalOn = False
+
+        
 
         # back propagation
         self.optimizer.zero_grad()

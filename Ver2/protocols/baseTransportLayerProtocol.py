@@ -8,7 +8,6 @@ class BaseTransportLayerProtocol(object):
     """
     Base class for all protocols
     """
-
     requiredKeys={}
     optionalKeys={"maxTxAttempts":-1, "timeout":-1, "maxPktTxDDL":-1}
 
@@ -47,9 +46,12 @@ class BaseTransportLayerProtocol(object):
 
         self.pktInfo_dict={} # non-acked packet info dict
 
+        # performance check
         self.distincPktsSent = 0 # used as a feedback information for the server to compute delivery rate
+        self.perfDict = {}
 
         self.time = 0
+
 
     def _isTxBufferFull(self):
         if not self.txBuffer.maxlen:
@@ -138,21 +140,27 @@ class BaseTransportLayerProtocol(object):
         def alphaFairness(x):
             if alpha == 1: return np.log(x)
             return x**(1-alpha) / (1-alpha)
-        
         # r = beta1 * alphaFairness(deliveryRate+0.01) + beta2 * (1/(avgDelay+1))
 
         # part 1 inc function of delivery rate 
         # r_1 = (alphaFairness(deliveryRate+0.01))
-        r_1 = deliveryRate # alpha=0
+        # r_1 = deliveryRate # alpha=0
         
         # part 2 dec function of latency
         # r_2 = - alphaFairness(avgDelay+1)
-        r_2 = 1/alphaFairness(avgDelay+1)
+        # r_2 = 1/alphaFairness(avgDelay+2)
         
         # aveDelay can be 0. We plus 1 also to guarantee that r_2 is always negative
         # r_2 = - np.log((avgDelay+1)) 
 
-        r = beta1 * r_1 + beta2 * r_2
+        # r = beta1 * r_1 + beta2 * r_2
+
+        if deliveredPkts == 1:
+            r =  deliveryRate * (beta1 + beta2/np.log(avgDelay+2)) # 
+        else:
+            r = beta1*deliveryRate + beta2/np.log(avgDelay+2)
+        
+        # r = deliveryRate * 1/np.log(avgDelay+2)
 
         return r*deliveredPkts
 
@@ -181,3 +189,9 @@ class BaseTransportLayerProtocol(object):
         # self.timeout = self.SRTT * 3
         if self.timeout != -1: # we enable timeout
             self.timeout = self.SRTT + max(1, 4 * self.RTTVAR)
+    
+    @abc.abstractclassmethod
+    def clientSidePerf(self):
+        print("you need to implement clientSidePerf()")
+        return 
+    

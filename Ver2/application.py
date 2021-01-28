@@ -2,7 +2,7 @@
 The original design in Ver1 is chaoatic. In this design, application.py only incharge of the Application layer of the 4-layer network stack (not the OSI, but the TCP/IP stack). 
 """
 import numpy as np
-
+import pickle as pkl
 from packet import Packet
 from transportLayer import TransportLayerHelper
 
@@ -173,6 +173,14 @@ class EchoServer(object):
         return ACKMode
 
     def __init__(self, serverId, ACKMode=None, verbose=False):
+        """
+        If you would like to save the current dataset for future evaluation, set 
+            store_dataset=True
+        If you simply want to save the time by reusing the transmission data from previous slot,
+        feed the dataset filename, e.g. 
+            previous_dataFile="data.pkl"
+
+        """
         self.uid=serverId
         self.verbose = verbose
 
@@ -189,6 +197,7 @@ class EchoServer(object):
 
         # a list recording the number of new acks in each tick
         self.pktsPerTick = []
+        self.serverSidePerfRecord = []
 
         # param to record utility per tick
         self.ack_prev = -1
@@ -200,6 +209,50 @@ class EchoServer(object):
         self.clientSidePid_prev = -1
         self.perfRecords = []
         self.newPids = set()
+
+        #
+        self.loadFromDatafile = False 
+
+    def storePerf(self, filename, clientPid, distincPktsSent, clientSidePerf):
+        # store the current states to dictionary, then to file
+        data = {}
+        data["perfRecords"] = self.perfRecords
+        data["serverSidePerf"] = self.serverSidePerfRecord
+        data["clientSidePerf"] = clientSidePerf
+        data["clientPid"] = clientPid
+        data["distincPktsSent"]=distincPktsSent
+        with open(filename, 'wb') as f:
+            pkl.dump(data, f, protocol=pkl.HIGHEST_PROTOCOL)
+        
+            
+
+    def calcPerfBasedOnDataFile(self, previous_dataFile, utilityCalcHandler, utilityCalcHandlerParams):
+
+        with open(previous_dataFile, 'rb') as f:
+            data = pkl.load(f)
+        self.perfRecords = data["perfRecords"]
+        self.serverSidePerfRecord = data["serverSidePerf"]
+        for idx in range(len(data["perfRecords"])):
+            deliveredPktsInc = self.perfRecords[idx][1]
+            deliveryRate = self.perfRecords[idx][2]
+            avgDelay = self.perfRecords[idx][3]
+
+            utilPerPkt = utilityCalcHandler(
+                deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=1, 
+                alpha=utilityCalcHandlerParams["alpha"], 
+                beta1=utilityCalcHandlerParams["beta1"], 
+                beta2=utilityCalcHandlerParams["beta2"]
+            )
+
+            self.perfRecords[idx][-2] = utilPerPkt
+            self.perfRecords[idx][-1] = utilPerPkt * deliveredPktsInc
+        
+        self.maxSeenPid = data["distincPktsSent"]
+
+        self.loadFromDatafile = True
+
+        return data["clientSidePerf"], data["distincPktsSent"], data["clientPid"]
+
 
     def ticking(self, pktList):
         self.time += 1
@@ -304,6 +357,9 @@ class EchoServer(object):
 
     def serverSidePerf(self, clientPid=-1):
         
+        if self.loadFromDatafile:
+            return self.serverSidePerfRecord
+
         if clientPid >= 0:
             # we know that the client tries to send clientPid packets
             self.maxSeenPid = clientPid
@@ -327,6 +383,7 @@ class EchoServer(object):
         
         deliveryRate = deliveredPkts/(self.maxSeenPid)
 
+        self.serverSidePerfRecord = [deliveredPkts, deliveryRate, avgDelay]
         return deliveredPkts, deliveryRate, avgDelay
 
     def recordPerfInThisTick(self, clientPid=-1, utilityCalcHandler=None, utilityCalcHandlerParams={}):
@@ -386,7 +443,7 @@ class EchoServer(object):
 
     def printPerf(self, clientPid=-1, clientProtocolName=""):
         deliveredPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
-        print("Server {} -{} Performance:".format(self.uid, clientProtocolName))
+        print("Server {} {} Performance:".format(self.uid, clientProtocolName))
         print("\tpkts received  %d out of %d" % (deliveredPkts, self.maxSeenPid+1))
         print("\tdelivery rate  {}% ".format(deliveryRate*100))
         print("\taverage delay  {}".format(avgDelay))

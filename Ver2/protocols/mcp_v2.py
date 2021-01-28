@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+import sys
 
 import torch
 import torch.nn as nn
@@ -14,24 +15,27 @@ class DQNNet(nn.Module):
     """Our decision making network"""
     def __init__(self, nStates, nActions):
         super(DQNNet, self).__init__()
-        self.fc1 = nn.Linear(nStates, 20)
-        self.fc2 = nn.Linear(20, 50)
-        self.fc3 = nn.Linear(50, 20)
-        self.out = nn.Linear(20, nActions)
-        # self.out = nn.Linear(50, nActions)
+        # self.fc1 = nn.Linear(nStates, 20)
+        # self.fc2 = nn.Linear(20, 50)
+        # self.fc3 = nn.Linear(50, 20)
+        # self.out = nn.Linear(20, nActions)
+
+        self.fc1 = nn.Linear(nStates, 50)
+        self.out = nn.Linear(50, nActions)
 
         # initialize weights
+        # self.fc1.weight.data.normal_(0, 1)
+        # self.fc2.weight.data.normal_(0, 1)
+        # self.fc3.weight.data.normal_(0, 1)
+        # self.out.weight.data.normal_(0, 1)
         self.fc1.weight.data.normal_(0, 1)
-        self.fc2.weight.data.normal_(0, 1)
-        self.fc3.weight.data.normal_(0, 1)
         self.out.weight.data.normal_(0, 1)
     
     def forward(self, state):
-        # layer 1
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        # out
+        # x = F.relu(self.fc1(state))
+        # x = F.relu(self.fc2(x))
+        # x = F.relu(self.fc3(x))
+        x = torch.sigmoid(self.fc1(state))
         return self.out(x)
 
 
@@ -39,7 +43,8 @@ class MCP(BaseTransportLayerProtocol):
     requiredKeys = {}
     optionalKeys = {"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1,
     "beta1":1, "beta2":1, "alpha":0.1, # alpha-fairness beta1: emphasis on delivery, beta2: emphasis on delay
-    "gamma":0.9 
+    "gamma":0.9,
+    "learnRetransmissionOnly": False
     }
 
     def __init__(self, suid, duid, params, txBufferLen=-1, verbose=False):
@@ -75,18 +80,19 @@ class MCP(BaseTransportLayerProtocol):
             tgtNet=DQNNet(nActions=2, nStates=4),
             batchSize=64,           #
             memoryCapacity=1e5,     # maximum number of experiences to store
-            learningRate=1e-6,      #
+            learningRate=1e-5,      #
             updateFrequency=100,    # period to replace target network with evaluation network 
             epsilon=0.95,           # greedy policy parameter 
             gamma=0.9,              # reward discount
             weight_decay=0.995,
+            turnOffGreedyLoss=0.01,
             verbose=False
         )
         # self.SRTT = 0 # implemented in base class
-        self.avgDelay = 0
+        # self.perfDict["avgDelay"] = 0
 
         self.pktLossTrackingNum = 100
-        self.pktLossHat = 0.0
+        #self.perfDict["pktLossHat"] = 0.0 #
         self.pktLostNum = 0
         self.pktLossInfoQueue = np.zeros(self.pktLossTrackingNum) # keep track of the most recent 100 packets
         self.pktLossInfoPtr = 0
@@ -101,19 +107,32 @@ class MCP(BaseTransportLayerProtocol):
         # initialize the congestion window 
         self.buffer = {}
 
+        # override perfDict
+        self.perfDict["newPktsSent"] = 0
+        self.perfDict["retransAttempts"] = 0
+        self.perfDict["pktLossHat"] = 0
+        self.perfDict["avgDelay"] = 0
+        self.perfDict["convergeAt"] = sys.maxsize # when the RL_brain works relatively good (converge)
+        self.perfDict["RL_loss"] = sys.maxsize
+        self.perfDict["maxWin"] = 0
+
     def ticking(self, ACKPktList=[]):
         self.time += 1
+
+        self._RL_lossUpdate(self.RL_Brain.loss)
+        if self.RL_Brain.isConverge and self.time < self.perfDict["convergeAt"]:
+            self.perfDict["convergeAt"] = self.time
 
         # process ACK packets
         NACKPidList = self._handleACK(ACKPktList)
 
         # fetch new packets based on cwnd and packets in buffer
         newPktList = self._getNewPktsToSend()
+        self.perfDict["newPktsSent"] += len(newPktList)
 
         # handle timeout packets
         pktsToRetransmit = self._getRetransPkts(NACKPidList=NACKPidList)
-
-        
+        self.perfDict["retransAttempts"] += len(pktsToRetransmit)
 
         # print the progress if verbose=True
         if self.verbose:
@@ -159,24 +178,28 @@ class MCP(BaseTransportLayerProtocol):
                 self._delayUpdate(delay=delay)
                 self._pktLossUpdate(isLost=False)
 
-                reward = self.calcReward(isDelivered=True, retentionTime=delay)
-                # reward_prev = self.calcReward(isDelivered=False, retentionTime=self.buffer[pid].RLState[1])
-                # rewardDiff = reward - reward_prev
-                rewardDiff = reward
-                # store the ACKed packet info
-                self.RL_Brain.storeExperience(
-                    s=self.buffer[pid].RLState,
-                    a=1,
-                    r=rewardDiff,
-                    s_=[
-                        self.buffer[pid].txAttempts,
-                        delay,
-                        self.SRTT,
-                        self.pktLossHat,
-                    ]
-                )
+                if self.buffer[pid].txAttempts > 1 or not self.learnRetransmissionOnly:
+                    reward = self.calcReward(isDelivered=True, retentionTime=delay)
+                    # reward_prev = self.calcReward(isDelivered=False, retentionTime=self.buffer[pid].RLState[1])
+                    # rewardDiff = reward - reward_prev
+                    rewardDiff = reward
+
+
+                    # store the ACKed packet info
+                    self.RL_Brain.storeExperience(
+                        s=self.buffer[pid].RLState,
+                        a=1,
+                        r=rewardDiff,
+                        s_=[
+                            self.buffer[pid].txAttempts,
+                            delay,
+                            self.SRTT,
+                            self.perfDict["pktLossHat"],
+                        ]
+                    )
+                    self.RL_Brain.learn()
+
                 self.buffer.pop(pid, None)
-                self.RL_Brain.learn()
 
 
     def _getNewPktsToSend(self):
@@ -193,6 +216,9 @@ class MCP(BaseTransportLayerProtocol):
             self.addNewPktAndUpdateMemory(newpkt)
 
             newPktList.append(newpkt)
+        
+        # 
+        self.perfDict["maxWin"] = max(self.perfDict["maxWin"], len(self.buffer))
         
         return newPktList
 
@@ -212,16 +238,20 @@ class MCP(BaseTransportLayerProtocol):
         # pkts to retransmit
         retransPidSet |= timeoutPidSet
 
+        
+
         # generate pkts and update buffer information
         retransPktList = []
         for pid in retransPidSet:
+            # update lost packet estimation 
+            self._pktLossUpdate(isLost=True)
 
             # use RL to make a decision
             curState = [
                 self.buffer[pid].txAttempts,
                 self.time - self.buffer[pid].genTime,
                 self.SRTT,
-                self.pktLossHat,
+                self.perfDict["pktLossHat"],
             ]
             action = self.RL_Brain.chooseAction(state=curState)
 
@@ -240,8 +270,11 @@ class MCP(BaseTransportLayerProtocol):
                     self.buffer[pid].txAttempts,
                     self.time - self.buffer[pid].genTime,
                     self.SRTT,
-                    self.pktLossHat,
+                    self.perfDict["pktLossHat"],
                 ]
+
+        # update performance
+
 
         return retransPktList
 
@@ -251,6 +284,7 @@ class MCP(BaseTransportLayerProtocol):
             pktsToConsider = set(self.buffer.keys())
             for pid in pktsToConsider:
                 if self.buffer[pid].txAttempts >= self.maxTxAttempts:
+                    self._pktLossUpdate(isLost=True)
                     self.ignorePktAndUpdateMemory(pid, popKey=True)
 
         if self.maxPktTxDDL > -1:
@@ -258,6 +292,7 @@ class MCP(BaseTransportLayerProtocol):
             timeDDL = self.time - self.maxPktTxDDL
             for pid in pktsToConsider:
                 if self.buffer[pid].genTime < timeDDL:
+                    self._pktLossUpdate(isLost=True)
                     self.ignorePktAndUpdateMemory(pid, popKey=True)
         return
 
@@ -277,7 +312,7 @@ class MCP(BaseTransportLayerProtocol):
                     self.buffer[pid].txAttempts,
                     delay,
                     self.SRTT,
-                    self.pktLossHat,
+                    self.perfDict["pktLossHat"],
                 ]
             )
             self.RL_Brain.learn()
@@ -301,7 +336,7 @@ class MCP(BaseTransportLayerProtocol):
                     0, # txAttempt BEFORE taking the action
                     self.time - pkt.genTime,
                     self.SRTT,
-                    self.pktLossHat,
+                    self.perfDict["pktLossHat"],
                 ])
 
 
@@ -331,7 +366,8 @@ class MCP(BaseTransportLayerProtocol):
     
     def _delayUpdate(self, delay):
         """auto-regression to estimate averaged delay. only for performance check."""
-        self.avgDelay = 0.99 * self.avgDelay + 0.01 * delay
+        self.perfDict["avgDelay"] = (7/8.0) * self.perfDict["avgDelay"] + (1/8.0) * delay
+
     
     def _pktLossUpdate(self, isLost):
         isLost = int(isLost)
@@ -341,6 +377,21 @@ class MCP(BaseTransportLayerProtocol):
         
         self.pktLossInfoPtr = (self.pktLossInfoPtr+1) % self.pktLossTrackingNum
 
-        self.pktLossHat = self.pktLostNum / self.pktLossTrackingNum
+        self.perfDict["pktLossHat"] = self.pktLostNum / self.pktLossTrackingNum
 
+    def _RL_lossUpdate(self, loss):
+        self.perfDict["RL_loss"] = (7/8.0) * self.perfDict["RL_loss"] + (1/8.0) * loss
+
+
+    def clientSidePerf(self):
+        for key in self.perfDict:
+            print("{key}:{val}".format(key=key, val=self.perfDict[key]))
+
+        return self.perfDict
     
+    def reset(self):
+        # reset the object
+        self.perfDict = BaseTransportLayerProtocol.perfDictDefault
+        self.buffer.clear()
+        
+        return 

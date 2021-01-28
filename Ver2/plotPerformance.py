@@ -23,10 +23,14 @@ print("alpha:", utilityParam["alpha"])
 print("beta1:", utilityParam["beta1"])
 print("beta2:", utilityParam["beta2"])
 
+for protocol in data["protocols"]:
+    print("======"+protocol+"=====")
+    for key in data[protocol]["clientPerf"]:
+        print("{key}:{val}".format(key=key, val=data[protocol]["clientPerf"][key]))
 
 print(tabulate(generalData, headers=header))
 
-with open("txt"+datafileName[:-4]+".txt", 'w') as f:
+with open(datafileName[:-4]+".txt", 'w') as f:
     f.write(tabulate(generalData, headers=header).__str__())
 
 
@@ -35,11 +39,11 @@ slidingWindow = 300
 
 # plot delivery information
 # f1 = plt.figure(1)
-# for protocolName in data:
+# for protocolName in data["protocols"]:
 #     if protocolName in {"general", "header", "utilityParam"}:
 #         continue
     
-#     dataToPlot = np.asarray(data[protocolName][0])
+#     dataToPlot = np.asarray(data[protocolName]["serverPerf"][0])
 
 #     """method 1: convolution"""
 #     # dataToPlot = np.convolve(dataToPlot, np.ones((slidingWindow, )))
@@ -54,7 +58,7 @@ slidingWindow = 300
 #     """method 3: direct print"""
 #     xdata = np.arange(len(dataToPlot))
 
-#     plt.plot(xdata, dataToPlot, label=protocolName)
+#     plt.plot(xdata[100:], dataToPlot[100:], label=protocolName)
 
 
 # plt.title("delivered packets over time")
@@ -69,11 +73,11 @@ slidingWindow = 300
 # plot utility information
 f2 = plt.figure(2)
 slidingWindow = 20
-for protocolName in data:
-    if protocolName in {"general", "header", "utilityParam"} | {"tcp_newreno"}:
+for protocolName in data["protocols"]:
+    if protocolName in {"tcp_newreno"}:
         continue
 
-    perfData = np.asarray(data[protocolName][1])
+    perfData = np.asarray(data[protocolName]["serverPerf"][1])
 
     # perfRecords = [deliveriedPkts, deliveryRate, avgDelay, avg_utility_per_pkt, utility_sum]
     dataToPlot = perfData[:, 4]
@@ -94,7 +98,7 @@ for protocolName in data:
 
     """method 3: directly print"""
 
-    plt.plot(xdata[10:], dataToPlot[10:], label=protocolName)
+    plt.plot(xdata[100:], dataToPlot[100:], label=protocolName)
 
 plt.title("Utility over time (alpha={} beta=[{},{}])".format(utilityParam["alpha"], utilityParam["beta1"], utilityParam["beta2"]))
 plt.yscale('symlog')

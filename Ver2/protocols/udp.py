@@ -17,6 +17,9 @@ class UDP(BaseTransportLayerProtocol):
         
         self.verbose=verbose
 
+        # performance
+        self.perfDict["newPktsSent"] = 0
+
     def ticking(self, ACKPktList=[]):
         """
         Decide the number of packets to transmit (return) based on protocol implementation.
@@ -25,6 +28,8 @@ class UDP(BaseTransportLayerProtocol):
 
         pktList = []
 
+        self.perfDict["newPktsSent"] += len(self.txBuffer)
+        
         while self.txBuffer:
             pkt = self.txBuffer.popleft()
             pkt.txTime = self.time
@@ -40,3 +45,9 @@ class UDP(BaseTransportLayerProtocol):
                 )
         
         return pktList
+    
+    def clientSidePerf(self):
+        for key in self.perfDict:
+            print("{key}:{val}".format(key=key, val=self.perfDict[key]))
+
+        return self.perfDict
