@@ -20,7 +20,7 @@ class DQN(object):
         learningRate=1e-6,      #
         updateFrequency=100,     # period to replace target network with evaluation network 
         epsilon=0.95,            # greedy policy parameter
-        turnOffGreedyLoss=1,  # turn off greedy policy when loss is below than
+        convergeLossThresh=1,  # turn off greedy policy when loss is below than
         gamma=0.9,              # reward discount
         deviceStr="cpu",         # primary computing device cpu or cuda
         weight_decay=0.995,
@@ -60,7 +60,7 @@ class DQN(object):
 
         # other input parameters
         self.epsilon = epsilon
-        self.turnOffGreedyLoss = turnOffGreedyLoss
+        self.convergeLossThresh = convergeLossThresh
         self.globalEvalOn = False # True: ignore greedy random policy
         self.isConverge = False # whether the network meets the converge
         self.gamma = gamma
@@ -139,10 +139,10 @@ class DQN(object):
             # self.lr_scheduler.step() # decay learning rate
             print("loss=", self.loss)
 
-        if loss < self.turnOffGreedyLoss:
+        if loss < self.convergeLossThresh:
             self.isConverge = True
         
-        if loss > 20*self.turnOffGreedyLoss:
+        if loss > 20*self.convergeLossThresh:
             self.isConverge = False
 
         # back propagation

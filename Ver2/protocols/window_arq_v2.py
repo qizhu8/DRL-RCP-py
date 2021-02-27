@@ -94,7 +94,7 @@ class Window_ARQ(BaseTransportLayerProtocol):
         self.perfDict["retransAttempts"] += len(pktsToRetransmit)
 
         # fetch new packets based on cwnd and packets in buffer
-        newPktList = self._getPktsToSend()
+        newPktList = self._getNewPktsToSend()
         self.perfDict["newPktsSent"] += len(newPktList)
 
         # print the progress if verbose=True
@@ -133,7 +133,7 @@ class Window_ARQ(BaseTransportLayerProtocol):
             self.window.ACKPkts_LC(LCPidList=ACKPidList)
     
 
-    def _getPktsToSend(self):
+    def _getNewPktsToSend(self):
         
         newPktNum = min(self.window.availSpace(), len(self.txBuffer))
 

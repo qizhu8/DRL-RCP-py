@@ -138,9 +138,11 @@ class BaseTransportLayerProtocol(object):
     @staticmethod
     def calcUtility(deliveryRate, avgDelay, beta1, beta2):
         def sigmoid(x):
-            return 1/ (1 + np.exp(-x))
+            return 2/ (1 + np.exp(-x)) - 1
         # r = beta1*deliveryRate + beta2/np.log(avgDelay+2)
-        r = beta1 * deliveryRate + beta2 * (-2*sigmoid(avgDelay / 100)+2)
+        # r = beta1 * deliveryRate + beta2 * ( -2 * sigmoid(avgDelay / 100) + 2 )
+
+        r = beta1 * sigmoid(deliveryRate)  + beta2 * sigmoid(avgDelay/100)
         
         return r
 

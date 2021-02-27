@@ -43,7 +43,7 @@ class DQNNet(nn.Module):
 
 class MCP(BaseTransportLayerProtocol):
     requiredKeys = {}
-    optionalKeys = {"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1,
+    optionalKeys = {"maxTxAttempts":-1, "timeout":-1, "maxPktTxDDL":-1,
     "beta1":1, "beta2":1, # beta1: emphasis on delivery, beta2: emphasis on delay
     "gamma":0.9,
     "learnRetransmissionOnly": False
@@ -75,23 +75,20 @@ class MCP(BaseTransportLayerProtocol):
             gamma=0.9,              # initial gamma
             weight_decay=1,
             epsilon_decay=0.7,
-            turnOffGreedyLoss=0.01,
+            convergeLossThresh=0.01,# below which we consider the network as converged
             verbose=False
         )
         self.learnCounter = 0
         self.learnPeriod = 8 # number of new data before calling learn
 
         # self.SRTT = 0 # implemented in base class
-        # self.perfDict["avgDelay"] = 0
 
         self.pktLossTrackingNum = 100
-        #self.perfDict["pktLossHat"] = 0.0 #
         self.pktLostNum = 0
         self.pktLossInfoQueue = np.zeros(self.pktLossTrackingNum) # keep track of the most recent 100 packets
         self.pktLossInfoPtr = 0
 
         # performance collection
-
         self.parseParamByMode(params=params, requiredKeys=MCP.requiredKeys, optionalKeys=MCP.optionalKeys)
 
         # initialize the congestion window 
@@ -100,6 +97,8 @@ class MCP(BaseTransportLayerProtocol):
         # override perfDict
         self.perfDict["ignorePkts_RL"] = 0 # pkts ignored by RL
         self.perfDict["ignorePkts"] = 0 # pkts ignored by RL and max tx attempts
+        self.perfDict["deliveredPkts"] = 0 # a client side counter
+        self.perfDict["receivedACK"] = 0
 
         self.perfDict["newPktsSent"] = 0
         self.perfDict["retransAttempts"] = 0
@@ -123,15 +122,15 @@ class MCP(BaseTransportLayerProtocol):
             self.perfDict["convergeAt"] = self.time
 
         # process ACK packets
-        NACKPidList = self._handleACK(ACKPktList)
+        self._handleACK(ACKPktList)
+
+        # handle timeout packets
+        pktsToRetransmit = self._getRetransPkts()
+        self.perfDict["retransAttempts"] += len(pktsToRetransmit)
 
         # fetch new packets based on cwnd and packets in buffer
         newPktList = self._getNewPktsToSend()
         self.perfDict["newPktsSent"] += len(newPktList)
-
-        # handle timeout packets
-        pktsToRetransmit = self._getRetransPkts(NACKPidList=NACKPidList)
-        self.perfDict["retransAttempts"] += len(pktsToRetransmit)
 
         # print the progress if verbose=True
         if self.verbose:
@@ -147,68 +146,63 @@ class MCP(BaseTransportLayerProtocol):
 
 
     def _handleACK(self, ACKPktList):
-        NACKPidList, ACKPidList = [], []
+        ACKPidList = []
         for pkt in ACKPktList:
-            if pkt.duid != self.suid:
-                continue
-            if pkt.packetType == Packet.ACK:
-                # note that, this packet may be a redundante SACK
-                # for a retransmitted packet.
-                # the prev packet is received, but delayed. Therefore,
-                # pid may not in buffer
+            if pkt.duid == self.suid and pkt.packetType == Packet.ACK:
+                if pkt.pid not in self.buffer:
+                    continue
+
                 ACKPidList.append(pkt.pid)
 
-                rtt = self.time-pkt.txTime
+                rtt = self.time-self.buffer[pkt.pid].txTime
+
                 self._rttUpdate(rtt)
                 self._timeoutUpdate()
 
-            elif pkt.packetType == Packet.NACK:
-                NACKPidList.append(pkt.pid)
-
         self._handleACK_SACK(SACKPidList=ACKPidList)
-
-        return NACKPidList
 
 
 
     def _handleACK_SACK(self, SACKPidList):
         for pid in SACKPidList:
-            if pid in self.buffer:
-                # one packet is delivered
-                delay = self.time-self.buffer[pid].genTime
-                self._delayUpdate(delay=delay)
-                self._pktLossUpdate(isLost=False)
-                self._deliveryRateUpdate(isDelivered=True)
-
-                if self.buffer[pid].txAttempts > 1 or not self.learnRetransmissionOnly:
-                    # reward = curUtil - self.buffer[pid].util
-
-                    curutil = self.calcUtility(1, delay, self.beta1, self.beta2)
             
-                    # the expected utility if I gave up the packet
-                    # delay_if_gaveup =self.buffer[pid].RLState[1]
-                    # potentialUtil = self.calcUtility(0, delay_if_gaveup, self.beta1, self.beta2)
-                    # potentialUtil = self.calcUtility(0, 0, self.beta1, self.beta2)
-                    curSysUtil = self.getSysUtil()
+            # one packet is delivered
+            delay = self.time-self.buffer[pid].genTime
+            self._delayUpdate(delay=delay)
+            self._pktLossUpdate(isLost=False)
+            self._deliveryRateUpdate(isDelivered=True)
+            self.perfDict["deliveredPkts"] += 1
 
-                    reward = curutil - curSysUtil
 
-                    # store the ACKed packet info
-                    self.RL_Brain.storeExperience(
-                        s=self.buffer[pid].RLState,
-                        a=1,
-                        r=reward,
-                        s_=[
-                            self.buffer[pid].txAttempts,
-                            delay,
-                            self.SRTT,
-                            self.perfDict["pktLossHat"],
-                            self.perfDict["avgDelay"]
-                        ]
-                    )
-                    self.learn()
+            if self.buffer[pid].txAttempts > 1 or not self.learnRetransmissionOnly:
+                # reward = curUtil - self.buffer[pid].util
 
-                self.buffer.pop(pid, None)
+                curutil = self.calcUtility(1, delay, self.beta1, self.beta2)
+        
+                # the expected utility if I gave up the packet
+                # delay_if_gaveup =self.buffer[pid].RLState[1]
+                # potentialUtil = self.calcUtility(0, delay_if_gaveup, self.beta1, self.beta2)
+                # potentialUtil = self.calcUtility(0, 0, self.beta1, self.beta2)
+                curSysUtil = self.getSysUtil()
+
+                reward = curutil - curSysUtil
+
+                # store the ACKed packet info
+                self.RL_Brain.storeExperience(
+                    s=self.buffer[pid].RLState,
+                    a=1,
+                    r=reward,
+                    s_=[
+                        self.buffer[pid].txAttempts,
+                        delay,
+                        self.SRTT,
+                        self.perfDict["pktLossHat"],
+                        self.perfDict["avgDelay"]
+                    ]
+                )
+                self.learn()
+
+            self.buffer.pop(pid, None)
 
 
     def _getNewPktsToSend(self):
@@ -234,24 +228,16 @@ class MCP(BaseTransportLayerProtocol):
 
 
 
-    def _getRetransPkts(self, NACKPidList=[]):
+    def _getRetransPkts(self):
         # wipe out packets that exceed maxTxAttempts and/or maxPktTxDDL
         self._cleanWindow()
-        
-        # clean NACK list without considering pkts wiped out in _cleanWindow
-        retransPidSet = set(self.buffer.keys()) & set(NACKPidList)
-
-        # collect timeout packets
-        timeoutPidSet = set(self._collectTimeoutPkts())
 
         # pkts to retransmit
-        retransPidSet |= timeoutPidSet
-
-        
+        timeoutPidSet = self._collectTimeoutPkts()
 
         # generate pkts and update buffer information
         retransPktList = []
-        for pid in retransPidSet:
+        for pid in timeoutPidSet:
             # update lost packet estimation 
             self._pktLossUpdate(isLost=True)
 
@@ -263,6 +249,8 @@ class MCP(BaseTransportLayerProtocol):
                 self.perfDict["pktLossHat"],
                 self.perfDict["avgDelay"]
             ]
+
+
             action = self.RL_Brain.chooseAction(state=curState)
 
             self._RL_retransUpdate(action)
@@ -284,7 +272,7 @@ class MCP(BaseTransportLayerProtocol):
                     self.perfDict["pktLossHat"],
                     self.perfDict["avgDelay"]
                 ]
-
+        
         return retransPktList
 
 
@@ -308,7 +296,6 @@ class MCP(BaseTransportLayerProtocol):
         self.perfDict["ignorePkts"] += 1
 
         # ignore a packet contributes to no delay penalty
-        
         self._deliveryRateUpdate(isDelivered=False) # update delivery rate
 
         if pid in self.buffer:
@@ -363,6 +350,7 @@ class MCP(BaseTransportLayerProtocol):
 
     def _collectTimeoutPkts(self):
         timoutPidList = []
+
         for pid in self.buffer:
             timeDDL = self.time - self.timeout
             if self.buffer[pid].txTime < timeDDL:
@@ -435,7 +423,11 @@ class MCP(BaseTransportLayerProtocol):
         return 
     
     def learn(self):
-        self.learnCounter += 1
-        if self.learnCounter >= self.learnPeriod:
-            self.learnCounter = 0
+        
+        if not self.RL_Brain.isConverge:
             self.RL_Brain.learn()
+        else:
+            self.learnCounter += 1
+            if self.learnCounter >= self.learnPeriod:
+                self.learnCounter = 0
+                self.RL_Brain.learn()

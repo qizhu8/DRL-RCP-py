@@ -149,9 +149,6 @@ def test_client(client, server):
             packetList_enCh += env_clients[clientId].ticking(ACKPacketList)
         channel.putPackets(packetList_enCh)
 
-
-
-
     packetList_enCh = []
     for time in range(1, simulationPeriod+1):
         ACKPacketList = []

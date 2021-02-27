@@ -8,13 +8,14 @@ alphaList = [1]
 # beta1List = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 beta1List = [1]
 # beta2List = [0.5]
-simulationTime = 20000
+simulationTime = 8000
 
 # delete temp files
 subprocess.run(["rm results/*"], shell=True)
 
 # delete UDP/ARQ data history
 # subprocess.run(["rm *.pkl"], shell=True)
+subprocess.run(["rm ARQ_inf_wind_perf.pkl"], shell=True)
 
 
 for beta1 in beta1List:
