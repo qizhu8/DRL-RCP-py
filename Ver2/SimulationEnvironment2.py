@@ -11,37 +11,35 @@ import pickle as pkl
 from application import EchoClient, EchoServer
 from channel import SingleModeChannel
 
-if len(sys.argv) > 3:
-    alpha = float(sys.argv[1])
-    beta1 = float(sys.argv[2])
-    beta2 = float(sys.argv[3])
+if len(sys.argv) > 2:
+    beta1 = float(sys.argv[1])
+    beta2 = float(sys.argv[2])
 else:
-    alpha = 1     # fairness on small values
     beta1 = 10      # emphasis on delivery
     beta2 = 1      # emphasis on delay
 
-print("alpha={alpha}, beta1={beta1}, beta2={beta2}".format(alpha=alpha, beta1=beta1, beta2=beta2))
+print("beta1={beta1}, beta2={beta2}".format(beta1=beta1, beta2=beta2))
 
-utilityCalcHandlerParams = {"alpha":alpha, "beta1":beta1, "beta2":beta2}
-if len(sys.argv) > 4:
-    pklFilename = sys.argv[4]
+utilityCalcHandlerParams = {"beta1":beta1, "beta2":beta2}
+if len(sys.argv) > 3:
+    pklFilename = sys.argv[3]
 else:
-    pklFilename = "perfData2_{alpha}_{beta1}_{beta2}.pkl".format(alpha=alpha, beta1=beta1, beta2=beta2)
+    pklFilename = "perfData2_{beta1}_{beta2}.pkl".format(beta1=beta1, beta2=beta2)
 
 print("results save to \\result\\"+pklFilename)
 
 
-if len(sys.argv) > 5:
-    simulationPeriod = int(sys.argv[5]) # unit ticks / time slots
+if len(sys.argv) > 4:
+    simulationPeriod = int(sys.argv[4]) # unit ticks / time slots
 else:
-    simulationPeriod = int(100000) # unit ticks / time slots
+    simulationPeriod = int(1000) # unit ticks / time slots
 
 """
 add background traffic
 """
 env_clients = []
 env_servers = []
-for clientId in range(1, 2+1):
+for clientId in range(1, 4+1):
 
     client = EchoClient(clientId=clientId, serverId=10+clientId, 
         protocolName="UDP", transportParam={}, 
@@ -62,7 +60,7 @@ Protocols to compare
 """
 client_RL = EchoClient(clientId=101, serverId=111, 
     protocolName="mcp", transportParam={"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1,
-    "beta1":beta1, "beta2":beta2, "alpha":alpha, # alpha-fairness beta1: emphasis on delivery, beta2: emphasis on delay
+    "beta1":beta1, "beta2":beta2, # beta1: emphasis on delivery, beta2: emphasis on delay
     "gamma":0.9,
     "learnRetransmissionOnly": True}, # whether only learn the data related to retransmission
     trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1}, 
@@ -70,7 +68,7 @@ client_RL = EchoClient(clientId=101, serverId=111,
 server_RL = EchoServer(serverId=111, ACKMode="SACK", verbose=False)
 
 client_ARQ_finit = EchoClient(clientId=201, serverId=211, 
-    protocolName="window arq", transportParam={"cwnd": 40, "maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1, "ACKMode": "SACK"}, 
+    protocolName="window arq", transportParam={"cwnd": 140, "maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1, "ACKMode": "SACK"}, 
     trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1},
     verbose=False)
 server_ARQ_finit = EchoServer(serverId=211, ACKMode="SACK", verbose=False)
@@ -101,8 +99,8 @@ server_UDP = EchoServer(serverId=411, ACKMode=None, verbose=False)
 # test_servers = [server_RL]
 # test_clients = [client_RL, client_UDP, client_ARQ, client_TCP_Reno]
 # test_servers = [server_RL, server_UDP, server_ARQ, server_TCP_Reno]
-test_clients = [client_RL, client_UDP, client_ARQ_finit, client_ARQ_infinit_cwnd]
-test_servers = [server_RL, server_UDP, server_ARQ_finit, server_ARQ_infinit_cwnd]
+test_clients = [client_UDP, client_ARQ_finit, client_ARQ_infinit_cwnd, client_RL]
+test_servers = [server_UDP, server_ARQ_finit, server_ARQ_infinit_cwnd, server_RL]
 
 def test_client(client, server):
 
@@ -127,7 +125,7 @@ def test_client(client, server):
 
 
     # system time
-    channel = SingleModeChannel(processRate=3, bufferSize=60, rtt=20, pktDropProb=0.25, verbose=False)
+    channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False)
 
     clientList = env_clients + [client]
     serverList = env_servers + [server]
@@ -175,7 +173,7 @@ def test_client(client, server):
         packetList_deCh = channel.getPackets()
 
         if time % 30 == 0: # record performance for the past 30 slots
-            server.recordPerfInThisTick(client.getDistinctPktSent(), 
+            server.recordPerfInThisTick(client.getPktGen(), 
                 utilityCalcHandler=client.transportObj.instance.calcUtility,
                 utilityCalcHandlerParams=utilityCalcHandlerParams)
 
@@ -183,11 +181,13 @@ def test_client(client, server):
             print("time ", time, " =================")
             print("RTT", client.transportObj.instance.SRTT)
             client.transportObj.instance.clientSidePerf()
-            server.printPerf(client.getDistinctPktSent(), client.getProtocolName())
+            server.printPerf(
+                client.getPktGen(),
+                client.getProtocolName())
     
     server.storePerf(serverPerfFilename,
         clientPid=client.pid,
-        distincPktsSent=client.getDistinctPktSent(), 
+        distincPktsSent=client.getPktGen(),
         clientSidePerf=client.transportObj.instance.clientSidePerf())
 
 # test each pair of client and server
@@ -198,7 +198,7 @@ for client, server in zip(test_clients, test_servers):
 """
 check contents, performance ....
 """
-header = ["protocol", "pkts generated", "pkts sent", "pkts delivered", "delivery percentage", "avg delay", "utility per pkt", "overall utility"]
+header = ["ptcl", "pkts gen", "pkts sent", "pkts dlvy", "dlvy perc", "avg dly", "sys util", "l25p dlvy", "l25p dlvy perc", 'l25p dly', "l25p util"]
 table = []
 
 deliveredPktsPerSlot = dict()
@@ -206,28 +206,43 @@ deliveredPktsPerSlot["protocols"] = []
 for client, server in zip(test_clients, test_servers): # ignore the first two 
     deliveredPktsPerSlot["protocols"].append(client.getProtocolName())
     deliveredPktsPerSlot[client.getProtocolName()] = dict()
+    
+    server.printPerf(client.getPktGen(), client.getProtocolName())
+    client.transportObj.instance.clientSidePerf()
+
+    # store data
+    deliveredPktsPerSlot[client.getProtocolName()]["serverPerf"] = [server.pktsPerTick, server.delayPerPkt, server.perfRecords]
+    deliveredPktsPerSlot[client.getProtocolName()]["clientPerf"] = client.transportObj.instance.clientSidePerf()
 
     # for display
-    deliveredPkts, deliveryRate, avgDelay = server.serverSidePerf(client.getDistinctPktSent())
+    deliveredPkts, deliveryRate, avgDelay = server.serverSidePerf(client.getPktGen())
+    last25percTime = int(simulationPeriod*0.25)
+    last25percPkts = sum(server.pktsPerTick[-last25percTime:])
+    last25percDelveyRate = last25percPkts / (client.pktsPerTick*last25percTime)
+    if(last25percPkts == 0):
+        print(client.getProtocolName(), "have zero packts delivered ")
+    last25percDelay = sum(server.delayPerPkt[-last25percPkts:]) / last25percPkts
+    last25percUtil = client.transportObj.instance.calcUtility(
+            deliveryRate=last25percDelveyRate, avgDelay=last25percDelay,
+            beta1=beta1, beta2=beta2)
+
     table.append([client.getProtocolName(),
         client.pid,
-        client.getDistinctPktSent(),
+        client.getPktGen(),
         deliveredPkts, 
         deliveryRate*100, 
         avgDelay,
         client.transportObj.instance.calcUtility(
-            deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=1, 
-            alpha=alpha, beta1=beta1, beta2=beta2),
-        client.transportObj.instance.calcUtility(
-            deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=deliveredPkts, 
-            alpha=alpha, beta1=beta1, beta2=beta2)
+            deliveryRate=deliveryRate, avgDelay=avgDelay,
+            beta1=beta1, beta2=beta2),
+        last25percPkts,
+        last25percDelveyRate,
+        last25percDelay,
+        last25percUtil
     ])
-    server.printPerf(client.getDistinctPktSent(), client.getProtocolName())
-    client.transportObj.instance.clientSidePerf()
     
-    # store data
-    deliveredPktsPerSlot[client.getProtocolName()]["serverPerf"] = [server.pktsPerTick, server.perfRecords]
-    deliveredPktsPerSlot[client.getProtocolName()]["clientPerf"] = client.transportObj.instance.clientSidePerf()
+    
+    
     
 
 deliveredPktsPerSlot["utilityParam"] = utilityCalcHandlerParams
@@ -239,3 +254,11 @@ print(tabulate(table, headers=header))
 with open("results/"+pklFilename, 'wb') as handle:
     pkl.dump(deliveredPktsPerSlot, handle, protocol=pkl.HIGHEST_PROTOCOL)
 print("save to ", pklFilename)
+
+# plot MCP packet ignored time diagram
+plt.plot(client_RL.transportObj.instance.pktIgnoredCounter, label="MCP")
+plt.savefig("results/MCP_pktignore_{beta1}_{beta2}.png".format(beta1=beta1, beta2=beta2))
+
+np.set_printoptions(suppress=True)
+csvFileName="results/MCP_RL_perf_{beta1}_{beta2}.csv".format(beta1=beta1, beta2=beta2)
+np.savetxt(csvFileName, client_RL.transportObj.instance.RL_Brain.memory, delimiter=",", fmt='%f')

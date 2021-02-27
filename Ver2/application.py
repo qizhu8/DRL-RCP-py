@@ -91,6 +91,11 @@ class EchoClient(object):
         # packet id
         self.pid = 0 
         # binding traffic generator
+
+        if self.trafficMode == "periodic":
+            self.pktsPerTick = self.trafficParam["pktsPerPeriod"]/self.trafficParam["period"]
+        if self.trafficMode == "poisson":
+            self.pktsPerTick = self.trafficParam["lambda"]
     
     def ticking(self, ACKPktList=[]):
         self.time += 1
@@ -149,6 +154,9 @@ class EchoClient(object):
     def getDistinctPktSent(self):
         return self.transportObj.getDistinctPktSent()
     
+    def getPktGen(self):
+        return self.pid
+    
     def getProtocolName(self):
         return self.transportObj.protocolName
 
@@ -197,11 +205,12 @@ class EchoServer(object):
 
         # a list recording the number of new acks in each tick
         self.pktsPerTick = []
+        self.delayPerPkt = []
         self.serverSidePerfRecord = []
 
         # param to record utility per tick
         self.ack_prev = -1
-        self.sumDelay = 0
+        self.sumDelay = 0       # used to compute delay for all received packets
         self.sumDelay_prev = 0
         self.deliveredPkts = 0
         self.deliveredPkts_prev = 0
@@ -221,6 +230,8 @@ class EchoServer(object):
         data["clientSidePerf"] = clientSidePerf
         data["clientPid"] = clientPid
         data["distincPktsSent"]=distincPktsSent
+        data["pktsPerTick"]=self.pktsPerTick
+        data["delayPerPkt"] = self.delayPerPkt
         with open(filename, 'wb') as f:
             pkl.dump(data, f, protocol=pkl.HIGHEST_PROTOCOL)
         
@@ -232,20 +243,21 @@ class EchoServer(object):
             data = pkl.load(f)
         self.perfRecords = data["perfRecords"]
         self.serverSidePerfRecord = data["serverSidePerf"]
+        self.pktsPerTick = data["pktsPerTick"]
+        self.delayPerPkt = data["delayPerPkt"]
+        
         for idx in range(len(data["perfRecords"])):
             deliveredPktsInc = self.perfRecords[idx][1]
             deliveryRate = self.perfRecords[idx][2]
             avgDelay = self.perfRecords[idx][3]
 
             utilPerPkt = utilityCalcHandler(
-                deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=1, 
-                alpha=utilityCalcHandlerParams["alpha"], 
+                deliveryRate=deliveryRate, avgDelay=avgDelay, 
                 beta1=utilityCalcHandlerParams["beta1"], 
                 beta2=utilityCalcHandlerParams["beta2"]
             )
 
-            self.perfRecords[idx][-2] = utilPerPkt
-            self.perfRecords[idx][-1] = utilPerPkt * deliveredPktsInc
+            self.perfRecords[idx][-1] = utilPerPkt
         
         self.maxSeenPid = data["distincPktsSent"]
 
@@ -284,6 +296,7 @@ class EchoServer(object):
         for pkt in usefulPktList:
             if pkt.pid not in self.pktInfo:
                 self.pktsPerTick[-1] += 1
+                self.delayPerPkt.append(self.time - pkt.genTime)
                 self.newPids.add(pkt.pid)
 
             self.pktInfo[pkt.pid] = self.time - pkt.genTime
@@ -298,6 +311,7 @@ class EchoServer(object):
         for pkt in usefulPktList:
             if pkt.pid not in self.pktInfo:
                 self.pktsPerTick[-1] += 1
+                self.delayPerPkt.append(self.time - pkt.genTime)
                 self.newPids.add(pkt.pid)
 
             self.pktInfo[pkt.pid] = self.time - pkt.genTime
@@ -330,6 +344,7 @@ class EchoServer(object):
                 # print("ACK @", self.time, " ", pkt.pid)
                 if pkt.pid not in self.pktInfo:
                     self.pktsPerTick[-1] += 1
+                    self.delayPerPkt.append(self.time - pkt.genTime)
 
                     self.pktInfo[pkt.pid] = self.time - pkt.genTime
                     self.maxSeenPid = max(self.maxSeenPid, pkt.pid)
@@ -426,15 +441,13 @@ class EchoServer(object):
         self.clientSidePid_prev = self.clientSidePid
         self.deliveredPkts_prev = self.deliveredPkts
         
-        record = [self.time, deliveredPktsInc, deliveryRate, avgDelay, 0, 0]
+        record = [self.time, deliveredPktsInc, deliveryRate, avgDelay, 0]
         if utilityCalcHandler and utilityCalcHandlerParams:
-            record[-2] = utilityCalcHandler(
-                deliveryRate=deliveryRate, avgDelay=avgDelay, deliveredPkts=1, 
-                alpha=utilityCalcHandlerParams["alpha"], 
+            record[-1] = utilityCalcHandler(
+                deliveryRate=deliveryRate, avgDelay=avgDelay, 
                 beta1=utilityCalcHandlerParams["beta1"], 
                 beta2=utilityCalcHandlerParams["beta2"]
             )
-            record[-1] = record[-2] * deliveredPktsInc
 
         # print("In this ", record)
         self.perfRecords.append(record)

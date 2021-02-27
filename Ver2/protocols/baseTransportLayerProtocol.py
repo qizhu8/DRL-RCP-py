@@ -1,7 +1,7 @@
 import abc
 from collections import deque
 import numpy as np
-import logging
+# import logging
 
 
 class BaseTransportLayerProtocol(object):
@@ -136,33 +136,13 @@ class BaseTransportLayerProtocol(object):
         return
     
     @staticmethod
-    def calcUtility(deliveryRate, avgDelay, alpha, beta1, beta2, deliveredPkts=1):
-        def alphaFairness(x):
-            if alpha == 1: return np.log(x)
-            return x**(1-alpha) / (1-alpha)
-        # r = beta1 * alphaFairness(deliveryRate+0.01) + beta2 * (1/(avgDelay+1))
-
-        # part 1 inc function of delivery rate 
-        # r_1 = (alphaFairness(deliveryRate+0.01))
-        # r_1 = deliveryRate # alpha=0
+    def calcUtility(deliveryRate, avgDelay, beta1, beta2):
+        def sigmoid(x):
+            return 1/ (1 + np.exp(-x))
+        # r = beta1*deliveryRate + beta2/np.log(avgDelay+2)
+        r = beta1 * deliveryRate + beta2 * (-2*sigmoid(avgDelay / 100)+2)
         
-        # part 2 dec function of latency
-        # r_2 = - alphaFairness(avgDelay+1)
-        # r_2 = 1/alphaFairness(avgDelay+2)
-        
-        # aveDelay can be 0. We plus 1 also to guarantee that r_2 is always negative
-        # r_2 = - np.log((avgDelay+1)) 
-
-        # r = beta1 * r_1 + beta2 * r_2
-
-        if deliveredPkts == 1:
-            r =  deliveryRate * (beta1 + beta2/np.log(avgDelay+2)) # 
-        else:
-            r = beta1*deliveryRate + beta2/np.log(avgDelay+2)
-        
-        # r = deliveryRate * 1/np.log(avgDelay+2)
-
-        return r*deliveredPkts
+        return r
 
     def _rttUpdate(self, rtt):
         """

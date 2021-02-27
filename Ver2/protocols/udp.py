@@ -34,7 +34,7 @@ class UDP(BaseTransportLayerProtocol):
             pkt = self.txBuffer.popleft()
             pkt.txTime = self.time
             
-            self.distincPktsSent = max(self.distincPktsSent, pkt.pid)
+            self.distincPktsSent = max(self.distincPktsSent, pkt.pid)+1
 
             pktList.append(pkt)
         
@@ -49,5 +49,4 @@ class UDP(BaseTransportLayerProtocol):
     def clientSidePerf(self):
         for key in self.perfDict:
             print("{key}:{val}".format(key=key, val=self.perfDict[key]))
-
         return self.perfDict

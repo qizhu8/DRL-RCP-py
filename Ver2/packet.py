@@ -37,7 +37,7 @@ class PacketInfo(object):
     """
     A class helps to record packet info
     """
-    def __init__(self, pid, suid, duid, genTime=0, txTime=0, initTxTime=0, txAttempts=0, isFlying=True, RLState=[]):
+    def __init__(self, pid, suid, duid, genTime=0, txTime=0, initTxTime=0, txAttempts=0, isFlying=True, util=0, RLState=[]):
         self.pid=pid
         self.suid=suid
         self.duid=duid
@@ -47,6 +47,7 @@ class PacketInfo(object):
         self.txAttempts=txAttempts
         self.isFlying=isFlying
         self.RLState=RLState
+        self.util=util
     
     def toPacket(self):
         pkt = Packet(

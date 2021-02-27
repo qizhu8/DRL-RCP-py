@@ -16,7 +16,7 @@ class DQN(object):
         evalNet,
         tgtNet,
         batchSize=64,           #
-        memoryCapacity=1e5,     # maximum number of experiences to store
+        memoryCapacity=1e4,     # maximum number of experiences to store
         learningRate=1e-6,      #
         updateFrequency=100,     # period to replace target network with evaluation network 
         epsilon=0.95,            # greedy policy parameter
@@ -24,6 +24,7 @@ class DQN(object):
         gamma=0.9,              # reward discount
         deviceStr="cpu",         # primary computing device cpu or cuda
         weight_decay=0.995,
+        epsilon_decay=0.99,  
         verbose=False,
         ):
 
@@ -35,9 +36,10 @@ class DQN(object):
         self.tgtNet = tgtNet
 
         # selection of optimizer and loss function
-        # self.optimizer = torch.optim.Adam(self.evalNet.parameters(), lr=learningRate)
+        self.optimizer = torch.optim.Adam(self.evalNet.parameters(), lr=learningRate)
         # self.optimizer = torch.optim.RMSprop(self.evalNet.parameters(), lr=learningRate)
-        self.optimizer = torch.optim.SGD(self.evalNet.parameters(), lr=learningRate, weight_decay=weight_decay)
+        # self.optimizer = torch.optim.SGD(self.evalNet.parameters(), lr=learningRate, weight_decay=weight_decay)
+        self.epsilon_decay = epsilon_decay
 
         # self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=0.99) # decay lr
 
@@ -77,10 +79,14 @@ class DQN(object):
         # epsilon greedy
         if evalOn or self.globalEvalOn or np.random.uniform() < self.epsilon:
             actionRewards = self.evalNet.forward(state) # actionRewards if of shape 1 x nAction
-    
+            # print(actionRewards)
             # action = torch.argmax(actionRewards, 1)
             action = torch.max(actionRewards, 1)[1] # the [1] pointed to argmax
             action = action.cpu().data.numpy()[0] # add [0] at last because we want int rather than [int]
+            
+            # if(1):
+            # print(state)
+            # print(actionRewards)
         else:
             action = np.random.randint(0, self.nActions)
         return action
@@ -100,9 +106,7 @@ class DQN(object):
         if self.learningCounter > self.updateFrequencyFinal:
             self.tgtNet.load_state_dict(self.evalNet.state_dict())
             self.learningCounter = 0
-            # quick update initially, slow update later
-            # self.updateFrequencyCur *= 1.1
-            # self.updateFrequencyCur = min(self.updateFrequencyCur, self.updateFrequencyFinal)
+            self.epsilon = 1-(1 - self.epsilon)*self.epsilon_decay
         self.learningCounter += 1
 
         # randomly sample $batch experiences 
@@ -128,6 +132,8 @@ class DQN(object):
         tgtQ = rewards + self.gamma * nextQ.max(1)[0].view(-1, 1)
         loss = self.lossFunc(curQ, tgtQ)
 
+        # print(loss)
+
         self.loss = loss.cpu().detach().numpy()
         if self.verbose and self.learningCounter == 1:
             # self.lr_scheduler.step() # decay learning rate
@@ -138,26 +144,6 @@ class DQN(object):
         
         if loss > 20*self.turnOffGreedyLoss:
             self.isConverge = False
-
-        # if not self.globalEvalOn and loss < self.turnOffGreedyLoss:
-        #     self.convergeCounter += 1
-        #     self.divergeCounter = 0
-        #     if self.convergeCounter > 3:
-        #         if self.verbose:
-        #             print("[+] turn off greedy: loss {loss} < {threshold}".format(loss=self.loss, threshold=self.turnOffGreedyLoss))
-        #         self.isConverge = True
-        #         self.globalEvalOn = True
-        
-        # if self.globalEvalOn and loss > 20*self.turnOffGreedyLoss:
-        #     self.convergeCounter = 0
-        #     self.divergeCounter += 1
-        #     if self.divergeCounter > 3: # three consecutive bad performance
-        #         if self.verbose:
-        #             print("[-] turn on greedy: loss {loss} > {threshold}".format(loss=self.loss, threshold=20*self.turnOffGreedyLoss))
-        #         self.isConverge = False
-        #         self.globalEvalOn = False
-
-        
 
         # back propagation
         self.optimizer.zero_grad()

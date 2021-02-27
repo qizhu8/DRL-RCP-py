@@ -19,7 +19,6 @@ header = data["header"]
 utilityParam = data["utilityParam"]
 
 
-print("alpha:", utilityParam["alpha"])
 print("beta1:", utilityParam["beta1"])
 print("beta2:", utilityParam["beta2"])
 
@@ -37,39 +36,6 @@ with open(datafileName[:-4]+".txt", 'w') as f:
 
 slidingWindow = 300
 
-# plot delivery information
-# f1 = plt.figure(1)
-# for protocolName in data["protocols"]:
-#     if protocolName in {"general", "header", "utilityParam"}:
-#         continue
-    
-#     dataToPlot = np.asarray(data[protocolName]["serverPerf"][0])
-
-#     """method 1: convolution"""
-#     # dataToPlot = np.convolve(dataToPlot, np.ones((slidingWindow, )))
-#     # dataToPlot = dataToPlot[:-slidingWindow+1]
-#     # xdata = np.arange(len(dataToPlot))
-#     """method 2: count per $slidingWindow tick"""
-#     # dataToPlot = np.concatenate((dataToPlot, np.zeros(slidingWindow - len(dataToPlot) % slidingWindow)))
-#     # dataToPlot = np.reshape(dataToPlot, [slidingWindow, len(dataToPlot)//slidingWindow])
-#     # dataToPlot = np.sum(dataToPlot, axis=0)
-#     # xdata = np.arange(len(dataToPlot))*slidingWindow
-
-#     """method 3: direct print"""
-#     xdata = np.arange(len(dataToPlot))
-
-#     plt.plot(xdata[100:], dataToPlot[100:], label=protocolName)
-
-
-# plt.title("delivered packets over time")
-# plt.xlabel("tick")
-# plt.ylabel("smoothed rate (per {window} ticks)".format(window=slidingWindow))
-# plt.legend()
-
-
-
-
-
 # plot utility information
 f2 = plt.figure(2)
 slidingWindow = 20
@@ -77,13 +43,11 @@ for protocolName in data["protocols"]:
     if protocolName in {"tcp_newreno"}:
         continue
 
-    perfData = np.asarray(data[protocolName]["serverPerf"][1])
+    perfData = np.asarray(data[protocolName]["serverPerf"][2])
 
-    # perfRecords = [deliveriedPkts, deliveryRate, avgDelay, avg_utility_per_pkt, utility_sum]
+    # perfRecords = [timeIdx, deliveriedPkts, deliveryRate, avgDelay, avg_utility_per_pkt]
     dataToPlot = perfData[:, 4]
     xdata = perfData[:, 0]
-
-    print(protocolName, "avg:", np.mean(dataToPlot))
 
     """method 1: convolution"""
     dataToPlot = np.convolve(dataToPlot, np.ones((slidingWindow, )))
@@ -100,13 +64,14 @@ for protocolName in data["protocols"]:
 
     plt.plot(xdata[100:], dataToPlot[100:], label=protocolName)
 
-plt.title("Utility over time (alpha={} beta=[{},{}])".format(utilityParam["alpha"], utilityParam["beta1"], utilityParam["beta2"]))
+plt.title("Utility over time (beta=[{},{}])".format(utilityParam["beta1"], utilityParam["beta2"]))
 plt.yscale('symlog')
 plt.xlabel("tick")
 plt.ylabel("smoothed utility (per {window} ticks)".format(window=slidingWindow))
 plt.legend()
 
-plotname = "utility_vs_time_{}_{}_{}".format(utilityParam["alpha"], utilityParam["beta1"], utilityParam["beta2"])
+plotname = "utility_vs_time_{}_{}".format(utilityParam["beta1"], utilityParam["beta2"])
 plt.savefig("results/"+plotname + '.png')
 # plt.show()
 
+# MCP final performance (last 25% data)
