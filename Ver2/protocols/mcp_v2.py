@@ -44,7 +44,8 @@ class DQNNet(nn.Module):
 class MCP(BaseTransportLayerProtocol):
     requiredKeys = {}
     optionalKeys = {"maxTxAttempts":-1, "timeout":-1, "maxPktTxDDL":-1,
-    "beta1":1, "beta2":1, # beta1: emphasis on delivery, beta2: emphasis on delay
+    "alpha":2, # shape of utility function
+    "beta1":0.9, "beta2":0.1, # beta1: emphasis on delivery, beta2: emphasis on delay
     "gamma":0.9,
     "learnRetransmissionOnly": False
     }
@@ -175,17 +176,7 @@ class MCP(BaseTransportLayerProtocol):
 
 
             if self.buffer[pid].txAttempts > 1 or not self.learnRetransmissionOnly:
-                # reward = curUtil - self.buffer[pid].util
-
-                curutil = self.calcUtility(1, delay, self.beta1, self.beta2)
-        
-                # the expected utility if I gave up the packet
-                # delay_if_gaveup =self.buffer[pid].RLState[1]
-                # potentialUtil = self.calcUtility(0, delay_if_gaveup, self.beta1, self.beta2)
-                # potentialUtil = self.calcUtility(0, 0, self.beta1, self.beta2)
-                curSysUtil = self.getSysUtil()
-
-                reward = curutil - curSysUtil
+                reward = self.calcUtility(1, delay, self.alpha, self.beta1, self.beta2)
 
                 # store the ACKed packet info
                 self.RL_Brain.storeExperience(
@@ -300,15 +291,8 @@ class MCP(BaseTransportLayerProtocol):
 
         if pid in self.buffer:
             delay = self.time - self.buffer[pid].genTime
-            # curutil = self.calcUtility(0, delay, self.beta1, self.beta2)
-            curutil = self.calcUtility(0, 0, self.beta1, self.beta2)
             
-            # the expected utility if I don't do this action
-            # potentialUtil = self.calcUtility(1-self.perfDict["pktLossHat"], delay + self.SRTT, self.beta1, self.beta2)
-            curSysUtil = self.getSysUtil()
-            
-            reward = curutil - curSysUtil 
-            # reward = self.calcUtility(0, delay, self.beta1, self.beta2)
+            reward = self.getSysUtil() # ignore a packet results in zero changes of system utility, so getSysUtil
 
             self.RL_Brain.storeExperience(
                 s=self.buffer[pid].RLState,
@@ -371,6 +355,7 @@ class MCP(BaseTransportLayerProtocol):
         return self.calcUtility(
                 deliveryRate=self.perfDict["deliveryRate"],
                 avgDelay=delay, 
+                alpha=self.alpha,
                 beta1=self.beta1, 
                 beta2=self.beta2
                 )

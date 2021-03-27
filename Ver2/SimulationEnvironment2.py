@@ -11,28 +11,32 @@ import pickle as pkl
 from application import EchoClient, EchoServer
 from channel import SingleModeChannel
 
-if len(sys.argv) > 2:
-    beta1 = float(sys.argv[1])
-    beta2 = float(sys.argv[2])
+if len(sys.argv) > 3:
+    alpha = int(sys.argv[1])
+    beta1 = float(sys.argv[2])
+    beta2 = float(sys.argv[3])
 else:
-    beta1 = 10      # emphasis on delivery
-    beta2 = 1      # emphasis on delay
+    alpha = 2       # quadratic 
+    beta1 = 0.8     # emphasis on delivery
+    beta2 = 0.2     # emphasis on delay
+
+alpha = np.round(alpha, 2)
 
 print("beta1={beta1}, beta2={beta2}".format(beta1=beta1, beta2=beta2))
 
-utilityCalcHandlerParams = {"beta1":beta1, "beta2":beta2}
-if len(sys.argv) > 3:
-    pklFilename = sys.argv[3]
+utilityCalcHandlerParams = {"beta1":beta1, "beta2":beta2, "alpha":alpha}
+if len(sys.argv) > 4:
+    pklFilename = sys.argv[4]
 else:
-    pklFilename = "perfData2_{beta1}_{beta2}.pkl".format(beta1=beta1, beta2=beta2)
+    pklFilename = "perfData2_{alpha}_{beta1}_{beta2}.pkl".format(alpha=alpha, beta1=beta1, beta2=beta2)
 
 print("results save to \\result\\"+pklFilename)
 
 
-if len(sys.argv) > 4:
-    simulationPeriod = int(sys.argv[4]) # unit ticks / time slots
+if len(sys.argv) > 5:
+    simulationPeriod = int(sys.argv[5]) # unit ticks / time slots
 else:
-    simulationPeriod = int(1000) # unit ticks / time slots
+    simulationPeriod = int(20000) # unit ticks / time slots
 
 """
 add background traffic
@@ -60,6 +64,7 @@ Protocols to compare
 """
 client_RL = EchoClient(clientId=101, serverId=111, 
     protocolName="mcp", transportParam={"maxTxAttempts":-1, "timeout":30, "maxPktTxDDL":-1,
+    "alpha":alpha,
     "beta1":beta1, "beta2":beta2, # beta1: emphasis on delivery, beta2: emphasis on delay
     "gamma":0.9,
     "learnRetransmissionOnly": True}, # whether only learn the data related to retransmission
@@ -85,24 +90,30 @@ client_UDP = EchoClient(clientId=401, serverId=411,
     verbose=False)
 server_UDP = EchoServer(serverId=411, ACKMode=None, verbose=False)
 
-# client_TCP_Reno = EchoClient(clientId=401, serverId=411,
-#     protocolName="tcp_newreno", transportParam={"timeout":30, "IW":4}, # IW=2 if SMSS>2190, IW=3 if SMSS>3, else IW=4
-#     trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":2}, 
-#     verbose=False)
-# server_TCP_Reno = EchoServer(serverId=411, ACKMode="LC", verbose=False)
+client_TCP_Reno = EchoClient(clientId=501, serverId=511,
+    protocolName="tcp_newreno", transportParam={"timeout":30, "IW":4}, # IW=2 if SMSS>2190, IW=3 if SMSS>3, else IW=4
+    trafficMode="periodic", trafficParam={"period":1, "pktsPerPeriod":1}, 
+    verbose=False)
+server_TCP_Reno = EchoServer(serverId=511, ACKMode="LC", verbose=False)
 
 # test_clients = [client_UDP]
 # test_servers = [server_UDP]
-# test_clients = [client_ARQ_finit]
-# test_servers = [server_ARQ_finit]
-# test_clients = [client_RL]
-# test_servers = [server_RL]
+# test_clients = [client_ARQ_infinit_cwnd]
+# test_servers = [server_ARQ_infinit_cwnd]
+test_clients = [client_RL]
+test_servers = [server_RL]
 # test_clients = [client_RL, client_UDP, client_ARQ, client_TCP_Reno]
 # test_servers = [server_RL, server_UDP, server_ARQ, server_TCP_Reno]
-test_clients = [client_UDP, client_ARQ_finit, client_ARQ_infinit_cwnd, client_RL]
-test_servers = [server_UDP, server_ARQ_finit, server_ARQ_infinit_cwnd, server_RL]
+# test_clients = [client_UDP, client_ARQ_finit, client_ARQ_infinit_cwnd, client_RL]
+# test_servers = [server_UDP, server_ARQ_finit, server_ARQ_infinit_cwnd, server_RL]
+# test_clients = [client_TCP_Reno]
+# test_servers = [server_TCP_Reno]
+
+
 
 def test_client(client, server):
+
+    ignored_pkt, retrans_pkt, retransProb = 0, 0, 0
 
     serverPerfFilename = client.getProtocolName()+"_perf.pkl"
 
@@ -125,7 +136,9 @@ def test_client(client, server):
 
 
     # system time
+    # channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False)
     channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False)
+
 
     clientList = env_clients + [client]
     serverList = env_servers + [server]
@@ -135,11 +148,11 @@ def test_client(client, server):
     packetList_deCh = []
 
     # clear each client server
-    for client, server in zip(clientList, serverList):
-        client.transportObj.instance.time = -1
-        client.pid = 0
-        client.time = -1
-        server.time = -1
+    for c, s in zip(clientList, serverList):
+        c.transportObj.instance.time = -1
+        c.pid = 0
+        c.time = -1
+        s.time = -1
 
     channel._initBuffer()
 
@@ -177,10 +190,18 @@ def test_client(client, server):
         if time % (simulationPeriod//10) == 0:
             print("time ", time, " =================")
             print("RTT", client.transportObj.instance.SRTT)
+            print("RTO", client.transportObj.instance.timeout)
             client.transportObj.instance.clientSidePerf()
             server.printPerf(
                 client.getPktGen(),
                 client.getProtocolName())
+            
+
+            if client.getProtocolName().lower() in {"mcp"}:
+                ignored_pkt = client.transportObj.instance.perfDict["ignorePkts"] - ignored_pkt
+                retrans_pkt = client.transportObj.instance.perfDict["retransAttempts"] - retrans_pkt
+                retransProb = retrans_pkt / (retrans_pkt + ignored_pkt)
+                client.transportObj.instance.perfDict["retranProb"] = retransProb # debug
     
     server.storePerf(serverPerfFilename,
         clientPid=client.pid,
@@ -188,9 +209,9 @@ def test_client(client, server):
         clientSidePerf=client.transportObj.instance.clientSidePerf())
 
 # test each pair of client and server
-
 for client, server in zip(test_clients, test_servers):
     test_client(client, server)
+
 
 """
 check contents, performance ....
@@ -218,19 +239,23 @@ for client, server in zip(test_clients, test_servers): # ignore the first two
     last25percDelveyRate = last25percPkts / (client.pktsPerTick*last25percTime)
     if(last25percPkts == 0):
         print(client.getProtocolName(), "have zero packts delivered ")
-    last25percDelay = sum(server.delayPerPkt[-last25percPkts:]) / last25percPkts
+        last25percDelay = -1
+    else:
+        last25percDelay = sum(server.delayPerPkt[-last25percPkts:]) / last25percPkts
     last25percUtil = client.transportObj.instance.calcUtility(
             deliveryRate=last25percDelveyRate, avgDelay=last25percDelay,
+            alpha=alpha,
             beta1=beta1, beta2=beta2)
 
     table.append([client.getProtocolName(),
         client.pid,
         client.getPktGen(),
         deliveredPkts, 
-        deliveryRate*100, 
+        deliveryRate, 
         avgDelay,
         client.transportObj.instance.calcUtility(
             deliveryRate=deliveryRate, avgDelay=avgDelay,
+            alpha=alpha,
             beta1=beta1, beta2=beta2),
         last25percPkts,
         last25percDelveyRate,
@@ -238,9 +263,7 @@ for client, server in zip(test_clients, test_servers): # ignore the first two
         last25percUtil
     ])
     
-    
-    
-    
+
 
 deliveredPktsPerSlot["utilityParam"] = utilityCalcHandlerParams
 deliveredPktsPerSlot["general"] = table
@@ -248,14 +271,15 @@ deliveredPktsPerSlot["header"] = header
 print(tabulate(table, headers=header))
 
 # store data
-with open("results/"+pklFilename, 'wb') as handle:
+pklFilePath = path.join("results", "alpha{alpha}".format(alpha=alpha), pklFilename)
+with open(pklFilePath, 'wb') as handle:
     pkl.dump(deliveredPktsPerSlot, handle, protocol=pkl.HIGHEST_PROTOCOL)
 print("save to ", pklFilename)
 
 # plot MCP packet ignored time diagram
-plt.plot(client_RL.transportObj.instance.pktIgnoredCounter, label="MCP")
-plt.savefig("results/MCP_pktignore_{beta1}_{beta2}.png".format(beta1=beta1, beta2=beta2))
+# plt.plot(client_RL.transportObj.instance.pktIgnoredCounter, label="MCP")
+# plt.savefig("results/MCP_pktignore_{beta1}_{beta2}.png".format(beta1=beta1, beta2=beta2))
 
-np.set_printoptions(suppress=True)
-csvFileName="results/MCP_RL_perf_{beta1}_{beta2}.csv".format(beta1=beta1, beta2=beta2)
-np.savetxt(csvFileName, client_RL.transportObj.instance.RL_Brain.memory, delimiter=",", fmt='%f')
+# np.set_printoptions(suppress=True)
+# csvFileName="results/MCP_RL_perf_{beta1}_{beta2}.csv".format(beta1=beta1, beta2=beta2)
+# np.savetxt(csvFileName, client_RL.transportObj.instance.RL_Brain.memory, delimiter=",", fmt='%f')

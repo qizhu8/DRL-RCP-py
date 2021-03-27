@@ -40,8 +40,8 @@ slidingWindow = 300
 f2 = plt.figure(2)
 slidingWindow = 20
 for protocolName in data["protocols"]:
-    if protocolName in {"tcp_newreno"}:
-        continue
+    # if protocolName in {"tcp_newreno"}:
+    #     continue
 
     perfData = np.asarray(data[protocolName]["serverPerf"][2])
 
@@ -72,6 +72,6 @@ plt.legend()
 
 plotname = "utility_vs_time_{}_{}".format(utilityParam["beta1"], utilityParam["beta2"])
 plt.savefig("results/"+plotname + '.png')
-# plt.show()
+# plt.show() 
 
 # MCP final performance (last 25% data)

@@ -21,7 +21,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         self.protocolName="TCP NewReno"
         self.verbose = verbose
 
-        # for TCP reno, only packet not ACK are in pktInfo => NACK/Timeout will be wiped out and moved to txBuffer
+        # for TCP reno, only packet not ACK are in pktInfo. NACK/Timeout pkts will be wiped out and moved to txBuffer
         self.window = {} 
 
         self.IW = 4 # initial cwnd window
@@ -91,6 +91,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
                 if pkt.pid in self.window:
                     rtt = self.time-self.window[pkt.pid].txTime
                     self._rttUpdate(rtt)
+                    self._timeoutUpdate()
             
             # TCP reno doesn't have NACK
             # elif pkt.packetType == Packet.NACK: 
@@ -231,7 +232,7 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         # print("cur timeout is ", self.timeout)
         for pid in pidList:
             # print("pkt {} queuingTime {}".format(pid, self.time-self.window[pid].txTime))
-            if self._isPktTimeout(pid):
+            if (self.time-self.window[pid].txTime) > self.timeout:
                 if self.verbose:
                     print("[-]Client {uid} @ {time} Pkt {pid} is timeout {queuingTime} >= {timeout}".format(uid=self.suid, time=self.time, pid=pid, queuingTime=self.time-self.window[pid].txTime, timeout=self.timeout))
                 # switch to Retransmission mode 

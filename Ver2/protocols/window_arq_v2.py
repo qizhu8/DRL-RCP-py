@@ -158,6 +158,8 @@ class Window_ARQ(BaseTransportLayerProtocol):
     def clientSidePerf(self):
         # generate performance report
         self.perfDict["maxWin"] = self.window.perfDict["maxWinCap"]
+        self.perfDict["RTO"] = self.timeout
+        self.perfDict["RTT"] = self.SRTT
 
         for key in self.perfDict:
             print("{key}:{val}".format(key=key, val=self.perfDict[key]))

@@ -247,12 +247,13 @@ class EchoServer(object):
         self.delayPerPkt = data["delayPerPkt"]
         
         for idx in range(len(data["perfRecords"])):
-            deliveredPktsInc = self.perfRecords[idx][1]
+            # deliveredPktsInc = self.perfRecords[idx][1]
             deliveryRate = self.perfRecords[idx][2]
             avgDelay = self.perfRecords[idx][3]
 
             utilPerPkt = utilityCalcHandler(
                 deliveryRate=deliveryRate, avgDelay=avgDelay, 
+                alpha=utilityCalcHandlerParams["alpha"],
                 beta1=utilityCalcHandlerParams["beta1"], 
                 beta2=utilityCalcHandlerParams["beta2"]
             )
@@ -396,7 +397,10 @@ class EchoServer(object):
         else:
             avgDelay = 0
         
-        deliveryRate = deliveredPkts/(self.maxSeenPid)
+        if self.maxSeenPid != 0:
+            deliveryRate = deliveredPkts/(self.maxSeenPid)
+        else:
+            deliveryRate = 0
 
         self.serverSidePerfRecord = [deliveredPkts, deliveryRate, avgDelay]
         return deliveredPkts, deliveryRate, avgDelay
@@ -445,6 +449,7 @@ class EchoServer(object):
         if utilityCalcHandler and utilityCalcHandlerParams:
             record[-1] = utilityCalcHandler(
                 deliveryRate=deliveryRate, avgDelay=avgDelay, 
+                alpha=utilityCalcHandlerParams["alpha"],
                 beta1=utilityCalcHandlerParams["beta1"], 
                 beta2=utilityCalcHandlerParams["beta2"]
             )
@@ -455,7 +460,8 @@ class EchoServer(object):
         return 
 
     def printPerf(self, clientPid=-1, clientProtocolName=""):
-        deliveredPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid)
+        # for LC algorithm, delivered packets is ACK+1.
+        deliveredPkts, deliveryRate, avgDelay = self.serverSidePerf(clientPid) 
         print("Server {} {} Performance:".format(self.uid, clientProtocolName))
         print("\tpkts received  %d out of %d" % (deliveredPkts, self.maxSeenPid+1))
         print("\tdelivery rate  {}% ".format(deliveryRate*100))

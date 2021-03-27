@@ -58,36 +58,37 @@ class BaseTransportLayerProtocol(object):
             return False
         return len(self.txBuffer) == self.txBuffer.maxlen
 
-    def _isExceedMaxTxAttempts(self, pid):
-        if self.maxTxAttempts == -1:
-            return False
-        if pid in self.pktInfo_dict and self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts:
-            return False
-        return True
+    # def _isExceedMaxTxAttempts(self, pid):
+    #     if self.maxTxAttempts == -1:
+    #         return False
+    #     if pid in self.pktInfo_dict and self.pktInfo_dict[pid].txAttempts < self.maxTxAttempts:
+    #         return False
+    #     return True
     
-    def _isExceedMaxRetentionTime(self, pid):
-        if self.maxPktTxDDL == -1:
-            return False
-        if pid in self.pktInfo_dict and self.time - self.pktInfo_dict[pid].genTime < self.maxPktTxDDL:
-            return False
-        return True
+    # def _isExceedMaxRetentionTime(self, pid):
+    #     if self.maxPktTxDDL == -1:
+    #         return False
+    #     if pid in self.pktInfo_dict and self.time - self.pktInfo_dict[pid].genTime < self.maxPktTxDDL:
+    #         return False
+    #     return True
     
-    def _isPktFlying(self, pid):
-        """check whether the packet is considered as transmitting and its ACK/NACK/Timeout has not been received"""
-        if pid not in self.pktInfo_dict:
-            return False
-        else:
-            return self.pktInfo_dict[pid].isFlying
+    # def _isPktFlying(self, pid):
+    #     """check whether the packet is considered as transmitting and its ACK/NACK/Timeout has not been received"""
+    #     if pid not in self.pktInfo_dict:
+    #         return False
+    #     else:
+    #         return self.pktInfo_dict[pid].isFlying
 
-    def _isPktTimeout(self, pid):
-        """A packet is considered to be timeout if not ACK/NACK after timeout"""
-        if self.timeout == -1 or pid not in self.pktInfo_dict:
-            return False
-        else:
-            if (self.time-self.pktInfo_dict[pid].txTime) > self.timeout:
-                return True
-            else:
-                return False
+    # def _isPktTimeout(self, pid):
+    #     """A packet is considered to be timeout if not ACK/NACK after timeout"""
+    #     if self.timeout == -1 or pid not in self.pktInfo_dict:
+    #         return False
+    #     else:
+    #         # print("check pkt sent @ {}, now {}".format(self.pktInfo_dict[pid].txTime, self.time))
+    #         if (self.time-self.pktInfo_dict[pid].txTime) > self.timeout:
+    #             return True
+    #         else:
+    #             return False
 
 
     def receive(self, pktList):
@@ -136,14 +137,27 @@ class BaseTransportLayerProtocol(object):
         return
     
     @staticmethod
-    def calcUtility(deliveryRate, avgDelay, beta1, beta2):
-        def sigmoid(x):
-            return 2/ (1 + np.exp(-x)) - 1
+    def calcUtility(deliveryRate, avgDelay, alpha, beta1, beta2):
+        # def sigmoid(x):
+        #     return 1/ (1 + np.exp(-x))
         # r = beta1*deliveryRate + beta2/np.log(avgDelay+2)
         # r = beta1 * deliveryRate + beta2 * ( -2 * sigmoid(avgDelay / 100) + 2 )
+        # linear utility
 
-        r = beta1 * sigmoid(deliveryRate)  + beta2 * sigmoid(avgDelay/100)
+        UDP_dlvy, UDP_dly = 0.59548*0.9, 101.071*0.9
+        ARQ_dlvy, ARQ_dly = 0.966048*1.1, 611.003*1.1
+
         
+        dlvy = (deliveryRate - UDP_dlvy) / (ARQ_dlvy - UDP_dlvy)
+        q = (avgDelay - UDP_dly) / (ARQ_dly-UDP_dly)
+
+        # dlvy = deliveryRate
+        # q = avgDelay / 611.003
+
+        # r = beta1*normalized_dlvy + beta2 * (1 - normalized_dly) # (0.6, 101) & (1.0, 672)
+
+        r = -beta1*((1-dlvy)**alpha) - beta2*(q**alpha)
+
         return r
 
     def _rttUpdate(self, rtt):
