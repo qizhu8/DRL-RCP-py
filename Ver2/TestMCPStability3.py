@@ -1,5 +1,5 @@
 """
-In this simulation, we allow multiple protocols existing simultaneously. We would like to see whether MCP is so aggresive that it pushed all other protocols to receive no throughput.
+In this simulation, we start with channel process rate r0, and then changes the rate to r1 in the middle of the simulation.
 """
 import sys
 from os import path
@@ -17,8 +17,8 @@ if len(sys.argv) > 3:
     beta2 = float(sys.argv[3])
 else:
     alpha = 2       # quadratic 
-    beta1 = 0.8     # emphasis on delivery
-    beta2 = 0.2     # emphasis on delay
+    beta1 = 0.7     # emphasis on delivery
+    beta2 = 0.3     # emphasis on delay
 
 alpha = np.round(alpha, 2)
 
@@ -36,7 +36,7 @@ print("results save to \\result\\"+pklFilename)
 if len(sys.argv) > 5:
     simulationPeriod = int(sys.argv[5]) # unit ticks / time slots
 else:
-    simulationPeriod = int(10000) # unit ticks / time slots
+    simulationPeriod = int(25000) # unit ticks / time slots
 
 
 
@@ -56,16 +56,18 @@ bgclient = EchoClient(clientId=9998, serverId=9999,
 
 
 
-def test_channel(processRate=3, recordingPeriod=30):
+def test_channel(chParamInst=[[0, 3]], recordingPeriod=30):
     """
-    processRate: channel process rate
+    chParamInst: list of list, instruction to modify the channel parameter. each inner list is [time, target rate]
     recordingPeriod: how often to note down the number of delivered packets for each client-server
     """
+    chParamInst_ptr = 1 
     throughputDetail = [] # record the throughput of each server in each recording period
-    ignored_pkt, retrans_pkt, retransProb = 0, 0, 0
+    deliveryRateDetail = []
+    delayDetail = []
+    MCPPerfPerEpoch = {"retranProb": [], "retransAttempts": []}
 
-    # system time
-    channel = SingleModeChannel(processRate=processRate, bufferSize=300, rtt=10, pktDropProb=0.1, verbose=False)
+    channel = SingleModeChannel(processRate=chParamInst[0][1], bufferSize=1000, rtt=100, pktDropProb=0, verbose=False)
 
     clientList, serverList = [], []
     for clientId in range(1, 2+1):
@@ -111,7 +113,6 @@ def test_channel(processRate=3, recordingPeriod=30):
 
 
 
-
     ACKPacketList = []
     packetList_enCh = []
     packetList_deCh = []
@@ -128,11 +129,21 @@ def test_channel(processRate=3, recordingPeriod=30):
 
     while not channel.isFull(): # fill the channel with environment packets
         packetList_enCh = bgclient.ticking(ACKPacketList)
-        channel.putPackets(packetList_enCh)
+        channel.putPackets(packetList_enCh) # this operation affects channel.time
     
+
+    channel.time = 0
 
     packetList_enCh = []
     for time in range(1, simulationPeriod+1):
+
+        # check whether to change channel param
+        if chParamInst_ptr < len(chParamInst):
+            if time == chParamInst[chParamInst_ptr][0]:
+                channel.setProcessRate(chParamInst[chParamInst_ptr][1])
+                chParamInst_ptr += 1
+
+
         ACKPacketList = []
         # step 1: each server processes remaining pkts 
         for serverId in range(len(serverList)):
@@ -140,9 +151,14 @@ def test_channel(processRate=3, recordingPeriod=30):
 
         # step 2: clients generate packets
         packetList_enCh = []
+        # pktPerClt = []
         # for client in clientSet:
         for clientId in np.random.permutation(len(clientList)):
-            packetList_enCh += clientList[clientId].ticking(ACKPacketList)
+            pkts = clientList[clientId].ticking(ACKPacketList)
+            # pktPerClt.append(len(pkts))
+            packetList_enCh += pkts
+
+        # print(time, pktPerClt, channel.channelBuffer.numPacketsInBuffer)
 
         # step 3: feed packets to channel
         # ACKPacketList += channel.putPackets(packetList_enCh) # allow channel feedback 
@@ -151,48 +167,75 @@ def test_channel(processRate=3, recordingPeriod=30):
         # step 3: get packets from channel
         packetList_deCh = channel.getPackets()
 
-        if time % recordingPeriod == 0:
+        if time % 1000 == 0:
             print("time ", time, " =================")
             print("RTT", client.transportObj.instance.SRTT)
             print("RTO", client.transportObj.instance.timeout)
             client, server = clientList[-1], serverList[-1]
 
-            client.transportObj.instance.clientSidePerf()
-            server.printPerf(
-                client.getPktGen(),
-                client.getProtocolName())
-            
+            clientSidePerf = client_RL.transportObj.instance.clientSidePerf(verbose=True)
+            server_RL.printPerf(
+                client_RL.getPktGen(),
+                client_RL.getProtocolName())
+        
+        if time % recordingPeriod == 0:
             deliveredPktEachServer = []
+            deliveryRateEachServer = []
+            delayEachServer = []
             for c, s in zip(clientList, serverList):
                 deliveredPkts, deliveryRate, avgDelay = s.serverSidePerf(c.getPktGen())
                 deliveredPktEachServer.append(deliveredPkts)
+                deliveryRateEachServer.append(deliveryRate)
+                delayEachServer.append(avgDelay)
+
+            # monitor MCP
+            clientSidePerf = client_RL.transportObj.instance.clientSidePerf()
+            MCPPerfPerEpoch["retranProb"].append(clientSidePerf["retranProb"])
+            MCPPerfPerEpoch["retransAttempts"].append(clientSidePerf["retransAttempts"])
 
             throughputDetail.append(deliveredPktEachServer)
+            deliveryRateDetail.append(deliveryRateEachServer)
+            delayDetail.append(delayEachServer)
+
+
+    # # check pkts in channel
+    # print("the reminder pkts in channel")
+    # while not channel.isEmpty():
+    #     channel.putPackets([])
+    #     packetList_deCh = channel.getPackets()
+    #     print("channel pops out ", len(packetList_deCh), " pkts", " remaining ", channel.channelBuffer.numPacketsInBuffer)
 
     throughputDesc = []
     for c, s in zip(clientList, serverList):
         desc = c.getProtocolName()+"[{}-{}]".format(c.uid, c.duid)
         throughputDesc.append(desc)
 
-    return throughputDetail, throughputDesc
+    return throughputDetail, throughputDesc, MCPPerfPerEpoch, deliveryRateDetail, delayDetail
 # test each pair of client and server
 
 throughputVsProcessRateEachServer = []
-ch_processRates= []
-for channelProcessRate in range(1, 10):
-    ch_processRates.append(channelProcessRate)
-    throughputEachServer, throughputDesc = test_channel(channelProcessRate)
-    throughputVsProcessRateEachServer.append(throughputEachServer)
+deliveryRateVsProcessRateEachServer = []
+delayVsProcessRateEachServer = []
+
+chParamInst = [[0, 7], [5000, 3]]
+throughputEachServer, throughputDesc, MCPPerfPerEpoch, deliveryRateDetail, delayDetail = test_channel(chParamInst=chParamInst, recordingPeriod=30)
+throughputVsProcessRateEachServer.append(throughputEachServer)
+deliveryRateVsProcessRateEachServer.append(deliveryRateDetail)
+delayVsProcessRateEachServer.append(delayDetail)
 
 print("throughput vs channel process rate")
 print("   ")
 
 data = {
     "throughputData":throughputVsProcessRateEachServer,
+    "delayData": delayVsProcessRateEachServer,
+    "deliveryRateData": deliveryRateVsProcessRateEachServer,
     "dataDesc": throughputDesc,
-    "processRate": ch_processRates
+    "chParamInst": chParamInst,
+    "MCPPerf": MCPPerfPerEpoch,
+    "utilParam": [alpha, beta1, beta2]
     }
 
-with open("throughput_data.pkl", 'wb') as handle:
+with open("throughput_data3.pkl", 'wb') as handle:
     pkl.dump(data, handle, protocol=pkl.HIGHEST_PROTOCOL)
-print("save to ", "throughput_data.pkl")
+print("save to ", "throughput_data3.pkl")

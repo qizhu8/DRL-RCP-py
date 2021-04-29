@@ -136,7 +136,7 @@ def test_client(client, server):
 
 
     # system time
-    # channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False)
+    # A suggested bufferSize >= processRate * rtt
     channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False)
 
 
@@ -161,6 +161,8 @@ def test_client(client, server):
         for clientId in np.random.permutation(len(env_clients)):
             packetList_enCh += env_clients[clientId].ticking(ACKPacketList)
         channel.putPackets(packetList_enCh)
+    
+    channel.time=0
 
     packetList_enCh = []
     for time in range(1, simulationPeriod+1):

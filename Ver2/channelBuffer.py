@@ -31,6 +31,8 @@ class ChannelBuffer(object):
         """check whether the channel can still accept packets"""
         return self.bufferSize > 0 and self.numPacketsInBuffer >= self.bufferSize
 
+    def isEmpty(self):
+        return self.numPacketsInBuffer == 0
 
     def size(self):
         return self.numPacketsInBuffer

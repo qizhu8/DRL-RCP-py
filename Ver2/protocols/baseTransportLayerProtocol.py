@@ -144,8 +144,10 @@ class BaseTransportLayerProtocol(object):
         # r = beta1 * deliveryRate + beta2 * ( -2 * sigmoid(avgDelay / 100) + 2 )
         # linear utility
 
-        UDP_dlvy, UDP_dly = 0.59548*0.9, 101.071*0.9
-        ARQ_dlvy, ARQ_dly = 0.966048*1.1, 611.003*1.1
+        # UDP_dlvy, UDP_dly = 0.59548*0.9, 101.071*0.9
+        # ARQ_dlvy, ARQ_dly = 0.966048*1.1, 611.003*1.1
+        UDP_dlvy, UDP_dly = 0.58306*0.9, 261.415*0.9
+        ARQ_dlvy, ARQ_dly = 0.86000*1.1, 1204.294*1.1
 
         
         dlvy = (deliveryRate - UDP_dlvy) / (ARQ_dlvy - UDP_dlvy)

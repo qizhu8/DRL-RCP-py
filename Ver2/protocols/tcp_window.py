@@ -286,8 +286,9 @@ class TCP_NewReno(BaseTransportLayerProtocol):
         self.window.clear()
         return 
     
-    def clientSidePerf(self):
-        for key in self.perfDict:
-            print("{key}:{val}".format(key=key, val=self.perfDict[key]))
+    def clientSidePerf(self, verbose=False):
+        if verbose:
+            for key in self.perfDict:
+                print("{key}:{val}".format(key=key, val=self.perfDict[key]))
 
         return self.perfDict

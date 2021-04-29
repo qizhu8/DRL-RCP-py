@@ -59,6 +59,7 @@ class DQN(object):
         self.memory = np.zeros((self.memoryCapacity, nStates*2+2)) # storing [curState, action, reward, nextState], so nStates*2 + 2
 
         # other input parameters
+        self.epsilon_init = epsilon
         self.epsilon = epsilon
         self.convergeLossThresh = convergeLossThresh
         self.globalEvalOn = False # True: ignore greedy random policy
@@ -144,6 +145,9 @@ class DQN(object):
         
         if loss > 20*self.convergeLossThresh:
             self.isConverge = False
+        
+        # if loss > 100*self.convergeLossThresh:
+        #     self.epsilon = self.epsilon_init
 
         # back propagation
         self.optimizer.zero_grad()

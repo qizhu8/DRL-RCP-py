@@ -36,7 +36,7 @@ class DQNNet(nn.Module):
 
         # two layers
         x = torch.sigmoid(self.fc1(state))
-        x = self.fc2(x)
+        x = torch.sigmoid(self.fc2(x))
 
         return self.out(x)
 
@@ -392,11 +392,12 @@ class MCP(BaseTransportLayerProtocol):
     def _RL_retransUpdate(self, isRetrans):
         self.perfDict["retranProb"] = 0.99 * self.perfDict["retranProb"] + 0.01 * int(isRetrans)
 
-    def clientSidePerf(self):
+    def clientSidePerf(self, verbose=False):
 
         # self.perfDict["retranProb"] = self.perfDict["retransAttempts"]/(self.perfDict["ignorePkts_RL"] + self.perfDict["retransAttempts"])
-        for key in self.perfDict:
-            print("{key}:{val}".format(key=key, val=self.perfDict[key]))
+        if verbose:
+            for key in self.perfDict:
+                print("{key}:{val}".format(key=key, val=self.perfDict[key]))
 
         return self.perfDict
     

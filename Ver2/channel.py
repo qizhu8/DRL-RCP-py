@@ -21,7 +21,7 @@ Channel Model:
                 "uniform":  {min: <min>, max: <max>}
             queue_size: int  if >= 1, finite queue, otherwise, infinite queue
          
-    2. Hidden Markov Mode -> Class MarkoveChannel
+    2. Hidden Markov Mode -> Class MarkoveChannel (Not implement yet. Seems to be not useful)
         The channel changes among each input modes following a discrete Markov process.
 
         Params: 
@@ -90,6 +90,9 @@ class SingleModeChannel(object):
 
     def isFull(self):
         return self.channelBuffer.isFull()
+    
+    def isEmpty(self):
+        return self.channelBuffer.isEmpty()
 
     """
     channel operations
@@ -142,6 +145,9 @@ class SingleModeChannel(object):
             packetList.append(_packet)
 
         return packetList
+    
+    def setProcessRate(self, processRate):
+        self.processRate = self.parseProcessRate(processRate)
 
     
     """
@@ -157,9 +163,5 @@ class SingleModeChannel(object):
 
 
 if __name__ == "__main__":
-    gaussian_channel = SingleModeChannel(mode='Gaussian', param={"min":10, "max":200, "isBounded":True, "mean":120, "var":10})
-
-    uniform_channel = SingleModeChannel(mode='uniform', param={"min":10, "max":200})
-
-    poisson_channel = SingleModeChannel(mode='poisson', param={"mean":15})
+    channel = SingleModeChannel(processRate=1, rtt=100, bufferSize=300)
 
