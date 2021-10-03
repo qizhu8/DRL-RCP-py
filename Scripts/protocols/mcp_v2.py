@@ -6,39 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from protocols.baseTransportLayerProtocol import BaseTransportLayerProtocol
-from RL_Brain import DQN
+from RL_Brain import DQN_Brain
+from Q_Brain import Q_Brain
 from packet import Packet, PacketInfo
-
-
-class DQNNet(nn.Module):
-    """Our decision making network"""
-    def __init__(self, nStates, nActions):
-        super(DQNNet, self).__init__()
-        # one layer
-        # self.fc1 = nn.Linear(nStates, 50)
-        # self.out = nn.Linear(50, nActions)
-
-        # self.fc1.weight.data.normal_(0, 1)
-        # self.out.weight.data.normal_(0, 1)
-
-        # two layers
-        self.fc1 = nn.Linear(nStates, 20)
-        self.fc2 = nn.Linear(20, 30)
-        self.out = nn.Linear(30, nActions)
-
-        # self.fc1.weight.data.normal_(0, 1)
-        # self.fc2.weight.data.normal_(0, 1)
-        # self.out.weight.data.normal_(0, 1)
-    
-    def forward(self, state):
-        # one layer
-        # x = torch.sigmoid(self.fc1(state))
-
-        # two layers
-        x = torch.sigmoid(self.fc1(state))
-        x = torch.sigmoid(self.fc2(x))
-
-        return self.out(x)
 
 
 class MCP(BaseTransportLayerProtocol):
@@ -64,21 +34,22 @@ class MCP(BaseTransportLayerProtocol):
         self.time = -1
 
         # RL related variables
-        self.RL_Brain = DQN(
-            nActions=2, nStates=5, 
-            evalNet=DQNNet(nActions=2, nStates=5),
-            tgtNet=DQNNet(nActions=2, nStates=5),
-            batchSize=32,           #
-            memoryCapacity=1e5,     # maximum number of experiences to store
-            learningRate=1e-2,      #
-            updateFrequency=100,    # period to replace target network with evaluation network 
-            epsilon=0.7,            # greedy policy parameter 
-            gamma=0.9,              # initial gamma
-            weight_decay=1,
-            epsilon_decay=0.7,
-            convergeLossThresh=0.01,# below which we consider the network as converged
-            verbose=False
+        # self.RL_Brain = DQN_Brain(
+        #     nActions=2, stateDim=5, 
+        #     batchSize=32,           #
+        #     memoryCapacity=1e5,     # maximum number of experiences to store
+        #     learningRate=1e-2,      #
+        #     updateFrequency=100,    # period to replace target network with evaluation network 
+        #     epsilon=0.7,            # greedy policy parameter 
+        #     eta=0.9,                # reward discount
+        #     epsilon_decay=0.7,
+        #     convergeLossThresh=0.01,# below which we consider the network as converged
+        #     verbose=False
+        # )
+        self.RL_Brain = Q_Brain(
+            nActions=2
         )
+
         self.learnCounter = 0
         self.learnPeriod = 8 # number of new data before calling learn
 
@@ -179,11 +150,11 @@ class MCP(BaseTransportLayerProtocol):
                 reward = self.calcUtility(1, delay, self.alpha, self.beta1, self.beta2)
 
                 # store the ACKed packet info
-                self.RL_Brain.storeExperience(
-                    s=self.buffer[pid].RLState,
-                    a=1,
-                    r=reward,
-                    s_=[
+                self.RL_Brain.digestExperience(
+                    prevState=self.buffer[pid].RLState,
+                    action=1,
+                    reward=reward,
+                    curState=[
                         self.buffer[pid].txAttempts,
                         delay,
                         self.SRTT,
@@ -293,12 +264,11 @@ class MCP(BaseTransportLayerProtocol):
             delay = self.time - self.buffer[pid].genTime
             
             reward = self.getSysUtil() # ignore a packet results in zero changes of system utility, so getSysUtil
-
-            self.RL_Brain.storeExperience(
-                s=self.buffer[pid].RLState,
-                a=0,
-                r=reward,
-                s_=[
+            self.RL_Brain.digestExperience(
+                prevState=self.buffer[pid].RLState,
+                action=0,
+                reward=reward,
+                curState=[
                     self.buffer[pid].txAttempts,
                     delay,
                     self.SRTT,

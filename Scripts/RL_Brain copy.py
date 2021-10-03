@@ -41,7 +41,7 @@ class DQN_Brain(DecisionBrain):
     
 
     def __init__(self,
-                 stateDim: int,                 # dimension of the system state
+                 nStates: int,                  # dimension of the system state
                  nActions: int,                 # dimension of the action space
                  batchSize: int = 64,           #
                  memoryCapacity: int = 1e4,     # maximum number of experiences to store
@@ -58,14 +58,14 @@ class DQN_Brain(DecisionBrain):
                  verbose=None                   # deprecated
                  ) -> None:
 
-        super().__init__(convergeLossThresh=convergeLossThresh, loglevel=loglevel)
+        super().__init__(loglevel)
 
         # automatically transfer to cuda if available
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
 
         self.nActions = nActions
-        self.nStates = stateDim
+        self.nStates = nStates
 
         # create eval net and target net
         # evaluation network (learning from back-propagation)
@@ -116,6 +116,9 @@ class DQN_Brain(DecisionBrain):
         self.eta = eta
 
         # other input parameters
+        self.convergeLossThresh = convergeLossThresh
+        self.globalEvalOn = False  # True: ignore greedy random policy
+        self.isConverge = False  # whether the network meets the convergence condition
         self.updateFrequency = updateFrequency
 
     def loadModel(self, modelFile):
@@ -180,6 +183,12 @@ class DQN_Brain(DecisionBrain):
             # self.lr_scheduler.step() # decay learning rate
             self.logger.info("loss=", self.loss)
 
+        if loss < self.convergeLossThresh:
+            self.isConverge = True
+
+        if loss > 20*self.convergeLossThresh:
+            self.isConverge = False
+
         # if loss > 100*self.convergeLossThresh:
         #     self.epsilon = self.epsilon_init
 
@@ -187,5 +196,3 @@ class DQN_Brain(DecisionBrain):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
-        super().learn()

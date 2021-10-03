@@ -9,7 +9,7 @@ class BaseTransportLayerProtocol(object):
     Base class for all protocols
     """
     requiredKeys={}
-    optionalKeys={"maxTxAttempts":-1, "timeout":-1, "maxPktTxDDL":-1}
+    optionalKeys={"max TxAttempts":-1, "timeout":-1, "maxPktTxDDL":-1}
 
     def parseParamByMode(self, params, requiredKeys, optionalKeys):
         # required keys
