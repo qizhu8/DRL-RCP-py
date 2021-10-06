@@ -32,6 +32,8 @@ class Packet(object):
             txTime=self.txTime, genTime=self.genTime,
             type="M" if self.packetType==0 else "A" )
      
+    def __lt__(self, otherPkt):
+        return self.pid <= otherPkt.pid
 
 class PacketInfo(object):
     """

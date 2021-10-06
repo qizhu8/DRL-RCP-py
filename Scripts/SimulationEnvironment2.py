@@ -7,9 +7,12 @@ import numpy as np
 from tabulate import tabulate
 import matplotlib.pyplot as plt
 import pickle as pkl
+import logging
 
 from application import EchoClient, EchoServer
-from channel import SingleModeChannel
+from channel_old import SingleModeChannel
+from channel import ConstDelayChannel, RandomDelayChannel
+from randomNumberGenerator import RangeUniform
 
 if len(sys.argv) > 3:
     alpha = int(sys.argv[1])
@@ -56,9 +59,6 @@ for clientId in range(1, 4+1):
 
 
 
-
-
-
 """
 Protocols to compare
 """
@@ -96,12 +96,12 @@ client_TCP_Reno = EchoClient(clientId=501, serverId=511,
     verbose=False)
 server_TCP_Reno = EchoServer(serverId=511, ACKMode="LC", verbose=False)
 
-# test_clients = [client_UDP]
-# test_servers = [server_UDP]
+test_clients = [client_UDP]
+test_servers = [server_UDP]
 # test_clients = [client_ARQ_infinit_cwnd]
 # test_servers = [server_ARQ_infinit_cwnd]
-test_clients = [client_RL]
-test_servers = [server_RL]
+# test_clients = [client_RL]
+# test_servers = [server_RL]
 # test_clients = [client_RL, client_UDP, client_ARQ, client_TCP_Reno]
 # test_servers = [server_RL, server_UDP, server_ARQ, server_TCP_Reno]
 # test_clients = [client_UDP, client_ARQ_finit, client_ARQ_infinit_cwnd, client_RL]
@@ -117,7 +117,7 @@ def test_client(client, server):
 
     serverPerfFilename = client.getProtocolName()+"_perf.pkl"
 
-    if client.getProtocolName().lower() not in {"mcp"}:
+    if client.getProtocolName().lower() not in {"mcp", "udp"}:
         #check whether can load the previous performance file directly
         
         if path.exists(serverPerfFilename):
@@ -137,7 +137,17 @@ def test_client(client, server):
 
     # system time
     # A suggested bufferSize >= processRate * rtt
-    channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False)
+    """
+    channel = SingleModeChannel(processRate=3, bufferSize=300, rtt=100, pktDropProb=0.1, verbose=False) # deprecated
+    #"""
+    """
+    channel = ConstDelayChannel(serviceRate=3, delay=100,
+                          bufferSize=300, pktDropProb=0.1, loglevel=logging.INFO)
+    #"""
+    # """
+    channel = RandomDelayChannel(serviceRate=3, bufferSize=300, rng=RangeUniform(
+        100, 150), pktDropProb=0.1, loglevel=logging.INFO)
+    #"""
 
 
     clientList = env_clients + [client]
@@ -154,13 +164,13 @@ def test_client(client, server):
         c.time = -1
         s.time = -1
 
-    channel._initBuffer()
+    channel.initBuffer()
 
     while not channel.isFull(): # fill the channel with environment packets
         packetList_enCh = []
         for clientId in np.random.permutation(len(env_clients)):
             packetList_enCh += env_clients[clientId].ticking(ACKPacketList)
-        channel.putPackets(packetList_enCh)
+        channel.acceptPkts(packetList_enCh)
     
     channel.time=0
 
@@ -179,10 +189,12 @@ def test_client(client, server):
 
         # step 3: feed packets to channel
         # ACKPacketList += channel.putPackets(packetList_enCh) # allow channel feedback 
-        channel.putPackets(packetList_enCh)
+        channel.acceptPkts(packetList_enCh)
+        channel.timeElapse() # channel.time ++
 
         # step 3: get packets from channel
-        packetList_deCh = channel.getPackets()
+        packetList_deCh = channel.getPkts()
+        #print("get pkts", len(packetList_deCh))
 
         if time % 30 == 0: # record performance for the past 30 slots
             server.recordPerfInThisTick(client.getPktGen(), 

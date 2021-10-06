@@ -116,7 +116,6 @@ class MCP(BaseTransportLayerProtocol):
         return pktsToRetransmit + newPktList
 
 
-
     def _handleACK(self, ACKPktList):
         ACKPidList = []
         for pkt in ACKPktList:
@@ -132,7 +131,6 @@ class MCP(BaseTransportLayerProtocol):
                 self._timeoutUpdate()
 
         self._handleACK_SACK(SACKPidList=ACKPidList)
-
 
 
     def _handleACK_SACK(self, SACKPidList):
@@ -166,7 +164,6 @@ class MCP(BaseTransportLayerProtocol):
 
             self.buffer.pop(pid, None)
 
-
     def _getNewPktsToSend(self):
         """transmit all packets in txBuffer"""
         self.distincPktsSent += len(self.txBuffer)
@@ -186,9 +183,6 @@ class MCP(BaseTransportLayerProtocol):
         self.perfDict["maxWin"] = max(self.perfDict["maxWin"], len(self.buffer))
         
         return newPktList
-
-
-
 
     def _getRetransPkts(self):
         # wipe out packets that exceed maxTxAttempts and/or maxPktTxDDL
